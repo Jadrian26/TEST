@@ -1,0 +1,25 @@
+-- Create the value_proposition_cards_config table
+CREATE TABLE public.value_proposition_cards_config (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), -- Primary key for the config entry itself
+  icon_media_item_id uuid REFERENCES public.media_items(id) ON DELETE SET NULL,
+  title text NOT NULL,
+  subtitle text NOT NULL,
+  default_icon_name text, -- e.g., 'storeUyB', 'deliveryUyB', used as fallback if icon_media_item_id is null
+  order_index integer DEFAULT 0 NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL
+);
+
+-- Enable Row Level Security
+ALTER TABLE public.value_proposition_cards_config ENABLE ROW LEVEL SECURITY;
+
+-- Trigger for updated_at timestamp
+-- Assumes trigger_set_timestamp function is created from 00_setup.txt
+CREATE TRIGGER set_value_proposition_cards_config_updated_at
+BEFORE UPDATE ON public.value_proposition_cards_config
+FOR EACH ROW
+EXECUTE FUNCTION public.trigger_set_timestamp();
+
+-- Add Indexes
+CREATE INDEX IF NOT EXISTS idx_vpc_config_icon_media_item_id ON public.value_proposition_cards_config (icon_media_item_id);
+CREATE INDEX IF NOT EXISTS idx_vpc_config_order_index ON public.value_proposition_cards_config (order_index);
