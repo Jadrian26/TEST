@@ -37,7 +37,7 @@ git apply ..\lcpp_sd3.patch
 ```
 
 
-## STEP 5 (Compile llama-quantize binary)
+## STEP 75 (Compile llama-quantize binary)
 
 Then, compile the llama-quantize binary. This example uses cmake, on linux you can just use make.
 ```
