@@ -1,0 +1,27 @@
+-- Create the products table
+CREATE TABLE public.products (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  description text NOT NULL,
+  image_url text NOT NULL, -- This will be a public_url from Supabase Storage
+  school_id uuid REFERENCES public.schools(id) ON DELETE SET NULL,
+  order_index integer DEFAULT 0 NOT NULL,
+  variants jsonb DEFAULT '[]'::jsonb NOT NULL, -- Stores array of ProductVariant objects
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL
+);
+
+-- Enable Row Level Security
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+
+-- Trigger for updated_at timestamp
+-- Assumes trigger_set_timestamp function is created from 00_setup.txt
+CREATE TRIGGER set_products_updated_at
+BEFORE UPDATE ON public.products
+FOR EACH ROW
+EXECUTE FUNCTION public.trigger_set_timestamp();
+
+-- Add Indexes
+CREATE INDEX IF NOT EXISTS idx_products_school_id ON public.products (school_id);
+CREATE INDEX IF NOT EXISTS idx_products_name ON public.products (name);
+CREATE INDEX IF NOT EXISTS idx_products_order_index ON public.products (order_index);
