@@ -16,6 +16,25 @@ import EditBrandLogoModal from './admin/EditBrandLogoModal';
 import useClickOutside from '../hooks/useClickOutside'; // Importado
 import useModalState from '../hooks/useModalState'; // Importado
 
+const BrandDisplay: React.FC<{ brandLogoItem: ReturnType<typeof useMedia>['mediaItems'][0] | null | undefined }> = React.memo(({ brandLogoItem }) => {
+  if (brandLogoItem) {
+    return (
+      <img 
+        src={brandLogoItem.public_url} 
+        alt={APP_NAME} 
+        className="h-10 sm:h-12 md:h-14 w-auto object-contain transition-all duration-300" // Adjusted height
+        aria-label={APP_NAME}
+      />
+    );
+  }
+  return (
+    <span className="text-lg sm:text-xl font-bold text-brand-secondary hover:text-brand-tertiary transition-colors flex-shrink-0"> {/* Adjusted text size */}
+      {APP_NAME}
+    </span>
+  );
+});
+BrandDisplay.displayName = 'BrandDisplay'; // For better debugging
+
 const Navbar: React.FC = () => {
   const { itemCount: cartItemCount, totalAmount } = useCart();
   const { currentUser } = useAuth(); 
@@ -53,24 +72,6 @@ const Navbar: React.FC = () => {
 
 
   const brandLogoItem = brandLogoId ? mediaItems.find(item => item.id === brandLogoId) : null;
-
-  const BrandDisplay = () => {
-    if (brandLogoItem) {
-      return (
-        <img 
-          src={brandLogoItem.public_url} 
-          alt={APP_NAME} 
-          className="h-10 sm:h-12 md:h-14 w-auto object-contain transition-all duration-300" // Adjusted height
-          aria-label={APP_NAME}
-        />
-      );
-    }
-    return (
-      <span className="text-lg sm:text-xl font-bold text-brand-secondary hover:text-brand-tertiary transition-colors flex-shrink-0"> {/* Adjusted text size */}
-        {APP_NAME}
-      </span>
-    );
-  };
   
   const showAdminPanelLink = currentUser?.isAdmin || currentUser?.isSales;
   const adminPanelText = currentUser?.isAdmin ? "Panel Admin" : (currentUser?.isSales ? "Panel Ventas" : "Panel");
@@ -96,7 +97,7 @@ const Navbar: React.FC = () => {
 
               <div className="flex items-center group">
                 <Link to="/" className="flex items-center" aria-label={`Ir a la página de inicio de ${APP_NAME}`}>
-                  <BrandDisplay />
+                  <BrandDisplay brandLogoItem={brandLogoItem} />
                 </Link>
                 {currentUser?.isAdmin && (
                   <button

@@ -8,7 +8,7 @@ interface SchoolCardProps {
   isClickable?: boolean; // Nueva propiedad
 }
 
-const SchoolCard: React.FC<SchoolCardProps> = ({ school, variant = 'default', isClickable = true }) => {
+const SchoolCard: React.FC<SchoolCardProps> = React.memo(({ school, variant = 'default', isClickable = true }) => {
   const navigate = useNavigate();
 
   const handleSchoolClick = () => {
@@ -88,6 +88,6 @@ const SchoolCard: React.FC<SchoolCardProps> = ({ school, variant = 'default', is
       </div>
     </div>
   );
-};
+});
 
 export default SchoolCard;

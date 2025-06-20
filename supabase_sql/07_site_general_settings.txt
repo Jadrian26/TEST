@@ -32,4 +32,4 @@ CREATE INDEX IF NOT EXISTS idx_gss_brand_logo_id ON public.general_site_settings
 
 
 -- Manually run this AFTER table creation to insert the single configuration row:
--- INSERT INTO public.general_site_settings (id) VALUES (true) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.general_site_settings (id) VALUES (true) ON CONFLICT (id) DO NOTHING;

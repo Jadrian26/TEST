@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, FormEvent } from 'react';
 import { useEditableContent } from '../../contexts/EditableContentContext';
 import CloseIcon from '../icons/CloseIcon';
@@ -7,6 +6,7 @@ import { MediaItem, School } from '../../types';
 import useModalState from '../../hooks/useModalState';
 import useFormHandler from '../../hooks/useFormHandler';
 import { useNotifications } from '../../contexts/NotificationsContext';
+import useButtonCooldown from '../../hooks/useButtonCooldown'; // Importar hook
 
 interface AddSchoolModalProps {
   isOpen: boolean;
@@ -21,21 +21,28 @@ const AddSchoolModal: React.FC<AddSchoolModalProps> = ({ isOpen, onClose }) => {
 
   const { isOpen: isMediaModalOpen, openModal: openMediaModal, closeModal: closeMediaModal } = useModalState();
 
+  const addSchoolAction = async (values: { name: string, logoUrl: string }) => {
+    const result = await addSchoolContext({ name: values.name, logoUrl: values.logoUrl });
+    if (result.success) {
+      showNotification(`Colegio "${values.name}" añadido exitosamente.`, 'success');
+      handleCloseModal();
+    } else {
+      showNotification(result.message || 'Error al añadir el colegio.', 'error');
+    }
+    // Podríamos querer que useButtonCooldown devuelva el resultado de la acción.
+    // Por ahora, la notificación se maneja aquí.
+  };
+
+  const { 
+    trigger: triggerAddSchool, 
+    isCoolingDown, 
+    timeLeft 
+  } = useButtonCooldown(addSchoolAction, 2500); // 2.5 segundos de cooldown
+
   const form = useFormHandler({
     initialValues: { name: '', logoUrl: '' },
     onSubmit: async (values) => {
-      try {
-        const result = await addSchoolContext({ name: values.name, logoUrl: values.logoUrl });
-        if (result.success) {
-          showNotification(`Colegio "${values.name}" añadido exitosamente.`, 'success');
-          handleCloseModal();
-        } else {
-          showNotification(result.message || 'Error al añadir el colegio.', 'error');
-        }
-      } catch (error) {
-        showNotification('Error al añadir el colegio.', 'error');
-        console.error("Error adding school:", error);
-      }
+      await triggerAddSchool(values);
     },
     validate: (values) => {
       const errors: { name?: string; logoUrl?: string } = {};
@@ -128,11 +135,11 @@ const AddSchoolModal: React.FC<AddSchoolModalProps> = ({ isOpen, onClose }) => {
             
             {form.formError && <p className="text-sm text-error mb-3">{form.formError}</p>}
             <div className="mt-6 flex justify-end space-x-3">
-              <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={form.isLoading}>
+              <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={form.isLoading || isCoolingDown}>
                 Cancelar
               </button>
-              <button type="submit" className="btn-primary" disabled={form.isLoading}>
-                {form.isLoading ? 'Guardando...' : 'Añadir Colegio'}
+              <button type="submit" className="btn-primary" disabled={form.isLoading || isCoolingDown}>
+                {isCoolingDown ? `Guardando... (${timeLeft}s)` : (form.isLoading ? 'Guardando...' : 'Añadir Colegio')}
               </button>
             </div>
           </form>

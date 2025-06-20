@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Product, School, ProductVariant, MediaItem } from '../types';
@@ -7,7 +6,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useEditableContent } from '../contexts/EditableContentContext';
 import ProductCard from '../components/ProductCard'; 
 import { useNotifications } from '../contexts/NotificationsContext';
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai"; // Added for Gemini API
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai"; 
+import useButtonCooldown from '../hooks/useButtonCooldown'; // Importar hook
 
 interface ProductQnAItem {
   id: string;
@@ -32,10 +32,9 @@ const ProductDetailPage: React.FC = () => {
   const [selectedSize, setSelectedSize] = useState<string>(''); 
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
 
-  // State for Q&A feature
   const [userQuestion, setUserQuestion] = useState<string>('');
   const [qaList, setQaList] = useState<ProductQnAItem[]>([]);
-  const [isAskingGemini, setIsAskingGemini] = useState<boolean>(false);
+  // isAskingGemini ya no es necesario, useButtonCooldown lo maneja
   
   const API_KEY = process.env.API_KEY;
 
@@ -85,7 +84,7 @@ const ProductDetailPage: React.FC = () => {
         );
       }
       setRelatedProducts(newRelated.slice(0, 4)); 
-      setQaList([]); // Reset Q&A list when product changes
+      setQaList([]); 
 
     } else {
       navigate('/catalog'); 
@@ -103,7 +102,7 @@ const ProductDetailPage: React.FC = () => {
     }
   };
   
-  const handleAddToCart = () => {
+  const addToCartAction = async () => {
     if (product && selectedVariant) {
       addToCart(product, quantity, selectedVariant.size, selectedVariant.price);
       showNotification(`${product.name} (Talla: ${selectedVariant.size}, x${quantity}) añadido al carrito.`, 'success');
@@ -114,17 +113,22 @@ const ProductDetailPage: React.FC = () => {
     }
   };
 
-  const handleAskGemini = async () => {
+  const { 
+    trigger: triggerAddToCart, 
+    isCoolingDown: isAddToCartCoolingDown, 
+    timeLeft: addToCartTimeLeft 
+  } = useButtonCooldown(addToCartAction, 1500); // 1.5 segundos de cooldown
+
+  const askGeminiAction = async () => {
     if (!userQuestion.trim() || !product || !API_KEY) {
       showNotification("Por favor, escribe una pregunta.", 'error');
       if (!API_KEY) {
         console.error("API_KEY for Gemini not found.");
         showNotification("Error de configuración: No se pudo conectar con el servicio de IA.", 'error');
       }
-      return;
+      return; // No lanzar error para que el hook no lo capture innecesariamente si es validación
     }
 
-    setIsAskingGemini(true);
     const currentQuestionId = `qna-${Date.now()}`;
     const newQnAItem: ProductQnAItem = {
       id: currentQuestionId,
@@ -134,7 +138,8 @@ const ProductDetailPage: React.FC = () => {
       error: null,
     };
     setQaList(prev => [...prev, newQnAItem]);
-    setUserQuestion(''); // Clear input
+    const questionToAsk = userQuestion; // Guardar antes de limpiar
+    setUserQuestion(''); 
 
     try {
       const ai = new GoogleGenAI({ apiKey: API_KEY });
@@ -164,7 +169,7 @@ Información del Producto:
 ${productInfoPrompt}
 
 Pregunta del Usuario:
-"${newQnAItem.question}"
+"${questionToAsk}" 
 
 Respuesta del Asistente:
       `.trim();
@@ -182,11 +187,16 @@ Respuesta del Asistente:
       const errorMessage = error.message || "No se pudo obtener una respuesta del servicio de IA.";
       setQaList(prev => prev.map(item => item.id === currentQuestionId ? { ...item, error: errorMessage, isLoading: false } : item));
       showNotification(`Error al contactar la IA: ${errorMessage}`, 'error');
-    } finally {
-      setIsAskingGemini(false);
     }
   };
   
+  const { 
+    trigger: triggerAskGemini, 
+    isCoolingDown: isAskGeminiCoolingDown, 
+    timeLeft: askGeminiTimeLeft 
+  } = useButtonCooldown(askGeminiAction, 5000); // 5 segundos de cooldown para IA
+
+
   if (isContentLoading || !product) {
     return <div className="text-center py-20 text-text-secondary">Cargando producto...</div>;
   }
@@ -242,7 +252,7 @@ Respuesta del Asistente:
               Ver más de {school.name}
             </Link>
           )}
-          {!school && <div className="mb-3 h-[calc(1.25rem)]"></div>} {/* Placeholder for consistent spacing when no school link */}
+          {!school && <div className="mb-3 h-[calc(1.25rem)]"></div>} 
           
           {productPriceElement}
           
@@ -250,7 +260,6 @@ Respuesta del Asistente:
             {productDescriptionElement}
           </div>
           
-          {/* Size Selector */}
           {product.variants && product.variants.length > 0 && (
             <div className="mb-5">
               <label htmlFor="size" className="block text-sm font-medium text-text-primary mb-1.5">
@@ -275,7 +284,6 @@ Respuesta del Asistente:
             </div>
           )}
 
-          {/* Quantity Selector */}
           <div className="mb-6">
             <label htmlFor="quantity" className="block text-sm font-medium text-text-primary mb-1.5">Cantidad:</label>
             <div className="flex items-center w-fit border border-brand-quaternary rounded-md">
@@ -306,14 +314,17 @@ Respuesta del Asistente:
             </div>
           </div>
           
-          {/* Add to Cart Button */}
           <button
-            onClick={handleAddToCart}
-            disabled={(!selectedVariant && product.variants && product.variants.length > 0) || !canViewPrice} 
-            className={`btn-primary w-full sm:w-auto text-base py-2.5 px-6 ${(!canViewPrice && product.variants && product.variants.length > 0) ? 'opacity-50 cursor-not-allowed' : ''}`}
-            title={!canViewPrice ? "Inicia sesión y selecciona tu colegio para añadir al carrito" : ( (!selectedVariant && product.variants && product.variants.length > 0) ? "Selecciona una talla" : "Añadir al carrito")}
+            onClick={triggerAddToCart}
+            disabled={(!selectedVariant && product.variants && product.variants.length > 0) || !canViewPrice || isAddToCartCoolingDown} 
+            className={`btn-primary w-full sm:w-auto text-base py-2.5 px-6 ${((!canViewPrice && product.variants && product.variants.length > 0) || isAddToCartCoolingDown) ? 'opacity-50 cursor-not-allowed' : ''}`}
+            title={
+              isAddToCartCoolingDown ? `Espera ${addToCartTimeLeft}s` :
+              !canViewPrice ? "Inicia sesión y selecciona tu colegio para añadir al carrito" : 
+              ((!selectedVariant && product.variants && product.variants.length > 0) ? "Selecciona una talla" : "Añadir al carrito")
+            }
           >
-            Añadir al Carrito
+            {isAddToCartCoolingDown ? `Espera ${addToCartTimeLeft}s` : "Añadir al Carrito"}
           </button>
           {(!canViewPrice && product.variants && product.variants.length > 0) && (
              <p className="text-xs text-error mt-2">Para añadir al carrito, debes <Link to="/account" className="underline">iniciar sesión</Link> y tener un colegio asociado.</p>
@@ -321,8 +332,7 @@ Respuesta del Asistente:
         </div>
       </div>
       
-       {/* Q&A Section */}
-      {API_KEY && (
+       {API_KEY && (
         <section className="mt-8 md:mt-10 bg-brand-primary p-4 sm:p-6 md:p-8 rounded-lg shadow-card">
           <h2 className="text-xl sm:text-2xl font-bold text-brand-secondary mb-4">Preguntas sobre el Producto (IA)</h2>
           <div className="mb-4">
@@ -335,17 +345,17 @@ Respuesta del Asistente:
               aria-label="Escribe tu pregunta sobre el producto"
             />
             <button
-              onClick={handleAskGemini}
-              disabled={isAskingGemini || !userQuestion.trim()}
+              onClick={triggerAskGemini}
+              disabled={isAskGeminiCoolingDown || !userQuestion.trim()}
               className="btn-secondary mt-2 px-5 py-2 text-sm disabled:opacity-70"
             >
-              {isAskingGemini ? 'Preguntando a IA...' : 'Preguntar a IA'}
+              {isAskGeminiCoolingDown ? `Preguntando (espera ${askGeminiTimeLeft}s)` : 'Preguntar a IA'}
             </button>
           </div>
 
           {qaList.length > 0 && (
             <div className="space-y-4">
-              {qaList.slice().reverse().map(item => ( // Show newest first
+              {qaList.slice().reverse().map(item => ( 
                 <div key={item.id} className="p-3 border border-brand-gray-light rounded-md bg-brand-gray-light/50">
                   <p className="font-semibold text-text-primary text-sm mb-1">P: {item.question}</p>
                   {item.isLoading && <p className="text-xs text-brand-tertiary italic">Buscando respuesta...</p>}
@@ -358,7 +368,6 @@ Respuesta del Asistente:
         </section>
       )}
 
-      {/* Related Products Section */}
       {relatedProducts.length > 0 && (
         <section className="mt-8 md:mt-10">
           <h2 className="text-xl sm:text-2xl font-bold text-brand-secondary mb-4 text-center sm:text-left">También te podría interesar</h2>

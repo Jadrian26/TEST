@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Product } from '../types';
@@ -8,7 +7,7 @@ interface ProductCardProps {
   showPrice: boolean; // New prop
 }
 
-const ProductCard: React.FC<ProductCardProps> = ({ product, showPrice }) => {
+const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, showPrice }) => {
   const navigate = useNavigate();
 
   const handleViewProduct = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -78,6 +77,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showPrice }) => {
       </div>
     </div>
   );
-};
+});
 
 export default ProductCard;

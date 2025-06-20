@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, FormEvent } from 'react';
 import { useEditableContent } from '../../contexts/EditableContentContext';
 import { Product, School, ProductVariant, MediaItem } from '../../types';
@@ -7,7 +6,8 @@ import TrashIcon from '../icons/TrashIcon';
 import MediaSelectionModal from './MediaSelectionModal';
 import useModalState from '../../hooks/useModalState'; 
 import useFormHandler from '../../hooks/useFormHandler'; 
-import { useNotifications } from '../../contexts/NotificationsContext'; // Added
+import { useNotifications } from '../../contexts/NotificationsContext'; 
+import useButtonCooldown from '../../hooks/useButtonCooldown'; // Importar hook
 
 interface EditProductModalProps {
   isOpen: boolean;
@@ -17,7 +17,7 @@ interface EditProductModalProps {
 
 const EditProductModal: React.FC<EditProductModalProps> = ({ isOpen, onClose, productToEdit }) => {
   const { schools, updateProduct: updateProductContext } = useEditableContent();
-  const { showNotification } = useNotifications(); // Added
+  const { showNotification } = useNotifications(); 
 
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [currentProductSchoolId, setCurrentProductSchoolId] = useState<string | null | undefined>(null); 
@@ -26,44 +26,49 @@ const EditProductModal: React.FC<EditProductModalProps> = ({ isOpen, onClose, pr
   
   const { isOpen: isMediaModalOpen, openModal: openMediaModal, closeModal: closeMediaModal } = useModalState();
 
-  const form = useFormHandler({
-    initialValues: { name: '', description: '', imageUrl: '' },
-    onSubmit: async (values) => {
-      if (!productToEdit) {
+  const updateProductAction = async (values: { name: string, description: string, imageUrl: string }) => {
+    if (!productToEdit) {
         showNotification("Error: No hay información del producto para editar.", 'error');
         return;
-      }
-      if (variants.length === 0 || variants.some(v => !v.size?.trim() || v.price === undefined || isNaN(v.price) || v.price <= 0)) {
+    }
+    if (variants.length === 0 || variants.some(v => !v.size?.trim() || v.price === undefined || isNaN(v.price) || v.price <= 0)) {
         showNotification("Todas las variantes deben tener Talla y Precio válido (mayor que 0). El producto debe tener al menos una variante.", 'error');
         return;
-      }
-      
-      const finalVariants: ProductVariant[] = variants.map(v => ({
+    }
+    
+    const finalVariants: ProductVariant[] = variants.map(v => ({
         id: v.id || `variant-final-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         size: v.size!,
         price: v.price!
-      }));
-      
-      try {
-        const productUpdateData: Partial<Omit<Product, 'id' | 'created_at' | 'updated_at' | 'orderIndex'>> = {
-          name: values.name,
-          description: values.description,
-          variants: finalVariants,
-          imageUrl: values.imageUrl,
-          // schoolId is not changed here, it's display only
-        };
+    }));
+    
+    const productUpdateData: Partial<Omit<Product, 'id' | 'created_at' | 'updated_at' | 'orderIndex'>> = {
+        name: values.name,
+        description: values.description,
+        variants: finalVariants,
+        imageUrl: values.imageUrl,
+    };
 
-        const result = await updateProductContext(productToEdit.id, productUpdateData);
-        if (result.success) {
-          showNotification(`Producto "${values.name}" actualizado exitosamente.`, 'success');
-          handleCloseModal();
-        } else {
-          showNotification(result.message || 'Error al actualizar el producto.', 'error');
-        }
-      } catch (error) {
-         showNotification('Error al actualizar el producto.', 'error');
-         console.error("Error updating product:", error);
-      }
+    const result = await updateProductContext(productToEdit.id, productUpdateData);
+    if (result.success) {
+        showNotification(`Producto "${values.name}" actualizado exitosamente.`, 'success');
+        handleCloseModal();
+    } else {
+        showNotification(result.message || 'Error al actualizar el producto.', 'error');
+    }
+  };
+  
+  const { 
+    trigger: triggerUpdateProduct, 
+    isCoolingDown, 
+    timeLeft 
+  } = useButtonCooldown(updateProductAction, 2500);
+
+
+  const form = useFormHandler({
+    initialValues: { name: '', description: '', imageUrl: '' },
+    onSubmit: async (values) => {
+      await triggerUpdateProduct(values);
     },
     validate: (values) => {
       const errors: { name?: string; description?: string; imageUrl?: string; } = {}; 
@@ -265,11 +270,11 @@ const EditProductModal: React.FC<EditProductModalProps> = ({ isOpen, onClose, pr
             {form.formError && <p className="text-sm text-error mt-3 text-center">{form.formError}</p>}
 
             <div className="mt-8 flex justify-end space-x-3">
-              <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={form.isLoading}>
+              <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={form.isLoading || isCoolingDown}>
                 Cancelar
               </button>
-              <button type="submit" className="btn-primary" disabled={form.isLoading}>
-                {form.isLoading ? 'Guardando...' : 'Guardar Cambios'}
+              <button type="submit" className="btn-primary" disabled={form.isLoading || isCoolingDown}>
+                {isCoolingDown ? `Guardando... (${timeLeft}s)` : (form.isLoading ? 'Guardando...' : 'Guardar Cambios')}
               </button>
             </div>
           </form>

@@ -10,6 +10,7 @@ CREATE TABLE public.profiles (
   is_admin boolean DEFAULT false NOT NULL,
   is_sales boolean DEFAULT false NOT NULL,
   addresses jsonb DEFAULT '[]'::jsonb NOT NULL,
+  cart_items jsonb DEFAULT '[]'::jsonb, -- Added cart_items
   created_at timestamptz DEFAULT now() NOT NULL,
   updated_at timestamptz DEFAULT now() NOT NULL
 );
@@ -22,7 +23,7 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public -- Important for security definer functions
+SET search_path = public -- Ensured this is a function option
 AS $$
 DECLARE
   v_is_admin boolean;
@@ -41,7 +42,7 @@ BEGIN
     v_is_sales := COALESCE((new.raw_user_meta_data ->> 'is_sales')::boolean, false);
   END IF;
 
-  INSERT INTO public.profiles (id, email, first_name, last_name, id_card_number, school_id, is_admin, is_sales, created_at, updated_at)
+  INSERT INTO public.profiles (id, email, first_name, last_name, id_card_number, school_id, is_admin, is_sales, cart_items, created_at, updated_at)
   VALUES (
     new.id,
     new.email,
@@ -54,6 +55,7 @@ BEGIN
     END,
     v_is_admin, -- Use the determined v_is_admin
     v_is_sales, -- Use the determined v_is_sales
+    '[]'::jsonb, -- Default empty cart_items
     NOW(), -- Explicitly set created_at
     NOW()  -- Explicitly set updated_at
   );
@@ -84,19 +86,17 @@ FOR EACH ROW
 EXECUTE FUNCTION public.trigger_set_timestamp();
 
 -- Add Indexes
-CREATE INDEX IF NOT EXISTS idx_profiles_school_id ON public.profiles (school_id);
+-- CREATE INDEX IF NOT EXISTS idx_profiles_school_id ON public.profiles (school_id); -- Removed unused index
 CREATE INDEX IF NOT EXISTS idx_profiles_is_admin ON public.profiles (is_admin);
 CREATE INDEX IF NOT EXISTS idx_profiles_is_sales ON public.profiles (is_sales);
 -- email and id_card_number are already UNIQUE, so they have indexes.
 
 -- Helper functions that depend on the 'profiles' table
 -- Function to check if the current authenticated user is an admin
--- SECURITY DEFINER allows this function to bypass RLS for the query within it,
--- which is necessary to avoid recursion when this function is used in RLS policies
--- for the 'profiles' table itself.
 CREATE OR REPLACE FUNCTION public.is_claims_admin()
 RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public
 AS $$
   SELECT EXISTS (
     SELECT 1
@@ -109,6 +109,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.is_claims_sales()
 RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public
 AS $$
   SELECT EXISTS (
     SELECT 1

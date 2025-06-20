@@ -1,11 +1,11 @@
-
 import React, { useEffect, useState } from 'react';
 import CloseIcon from '../icons/CloseIcon'; 
+import useButtonCooldown from '../../hooks/useButtonCooldown'; // Importar hook
 
 interface ConfirmDeleteModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void; // Parent will handle notifications
+  onConfirm: () => Promise<void> | void; // Parent will handle notifications, can be async
   title: string;
   message: string;
   itemName?: string; 
@@ -21,6 +21,18 @@ const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
 }) => {
   const [isVisible, setIsVisible] = useState(false);
 
+  const { 
+    trigger: triggerConfirm, 
+    isCoolingDown, 
+    timeLeft 
+  } = useButtonCooldown(
+    async () => {
+      await onConfirm(); // Ejecuta la acción de confirmación original
+      handleCloseModal();
+    }, 
+    2000 // 2 segundos de cooldown
+  );
+
   useEffect(() => {
     if (isOpen) {
       setIsVisible(true);
@@ -34,11 +46,6 @@ const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
     setTimeout(() => {
       onClose();
     }, 300); 
-  };
-
-  const handleConfirmAction = () => {
-    onConfirm(); // Call the passed onConfirm, parent handles notifications
-    handleCloseModal();
   };
   
   if (!isOpen && !isVisible) return null;
@@ -75,11 +82,16 @@ const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
           Esta acción no se puede deshacer.
         </p>
         <div className="mt-6 flex justify-end space-x-3">
-          <button type="button" onClick={handleCloseModal} className="btn-ghost text-sm sm:text-base">
+          <button type="button" onClick={handleCloseModal} className="btn-ghost text-sm sm:text-base" disabled={isCoolingDown}>
             Cancelar
           </button>
-          <button type="button" onClick={handleConfirmAction} className="btn bg-error text-white hover:bg-red-700 focus:ring-error text-sm sm:text-base">
-            Confirmar Eliminación
+          <button 
+            type="button" 
+            onClick={triggerConfirm} 
+            className="btn bg-error text-white hover:bg-red-700 focus:ring-error text-sm sm:text-base"
+            disabled={isCoolingDown}
+          >
+            {isCoolingDown ? `Procesando... (${timeLeft}s)` : 'Confirmar Eliminación'}
           </button>
         </div>
       </div>

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, FormEvent } from 'react';
 import { useEditableContent } from '../../contexts/EditableContentContext';
 import { School, ProductVariant, MediaItem, Product } from '../../types'; 
@@ -7,7 +6,8 @@ import TrashIcon from '../icons/TrashIcon';
 import MediaSelectionModal from './MediaSelectionModal'; 
 import useModalState from '../../hooks/useModalState'; 
 import useFormHandler from '../../hooks/useFormHandler'; 
-import { useNotifications } from '../../contexts/NotificationsContext'; // Added
+import { useNotifications } from '../../contexts/NotificationsContext'; 
+import useButtonCooldown from '../../hooks/useButtonCooldown'; // Importar hook
 
 interface AddProductModalProps {
   isOpen: boolean;
@@ -17,7 +17,7 @@ interface AddProductModalProps {
 
 const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, preselectedSchoolId }) => {
   const { schools, addProductToContext } = useEditableContent(); 
-  const { showNotification } = useNotifications(); // Added
+  const { showNotification } = useNotifications(); 
   
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [currentSchoolId, setCurrentSchoolId] = useState<string>(preselectedSchoolId || '');
@@ -26,39 +26,44 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, pres
 
   const { isOpen: isMediaModalOpen, openModal: openMediaModal, closeModal: closeMediaModal } = useModalState();
 
-  const form = useFormHandler({
-    initialValues: { name: '', description: '', imageUrl: '' },
-    onSubmit: async (values) => {
-      if (variants.length === 0 || variants.some(v => !v.size?.trim() || v.price === undefined || isNaN(v.price) || v.price <= 0)) {
+  const addProductAction = async (values: { name: string, description: string, imageUrl: string }) => {
+    if (variants.length === 0 || variants.some(v => !v.size?.trim() || v.price === undefined || isNaN(v.price) || v.price <= 0)) {
         showNotification("Todas las variantes deben tener Talla y Precio válido (mayor que 0). El producto debe tener al menos una variante.", 'error');
-        return;
+        return; // Importante: No continuar si hay error para que el hook no se ponga en cooldown innecesariamente
       }
 
       const finalVariants: ProductVariant[] = variants.map(v => ({
-        id: `variant-new-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Client-side temp ID for variant
+        id: `variant-new-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         size: v.size!,
         price: v.price!
       }));
 
-      try {
-        const productData: Omit<Product, 'id' | 'orderIndex' | 'created_at' | 'updated_at'> = {
-          name: values.name,
-          description: values.description,
-          variants: finalVariants,
-          imageUrl: values.imageUrl,
-          schoolId: currentSchoolId === '' ? null : currentSchoolId, 
-        };
-        const result = await addProductToContext(productData);
-        if (result.success) {
-          showNotification(`Producto "${values.name}" añadido exitosamente.`, 'success');
-          handleCloseModal();
-        } else {
-          showNotification(result.message || 'Error al añadir el producto.', 'error');
-        }
-      } catch (error) {
-        showNotification('Error al añadir el producto.', 'error');
-        console.error("Error adding product:", error);
+      const productData: Omit<Product, 'id' | 'orderIndex' | 'created_at' | 'updated_at'> = {
+        name: values.name,
+        description: values.description,
+        variants: finalVariants,
+        imageUrl: values.imageUrl,
+        schoolId: currentSchoolId === '' ? null : currentSchoolId, 
+      };
+      const result = await addProductToContext(productData);
+      if (result.success) {
+        showNotification(`Producto "${values.name}" añadido exitosamente.`, 'success');
+        handleCloseModal();
+      } else {
+        showNotification(result.message || 'Error al añadir el producto.', 'error');
       }
+  };
+
+  const { 
+    trigger: triggerAddProduct, 
+    isCoolingDown, 
+    timeLeft 
+  } = useButtonCooldown(addProductAction, 2500);
+
+  const form = useFormHandler({
+    initialValues: { name: '', description: '', imageUrl: '' },
+    onSubmit: async (values) => {
+      await triggerAddProduct(values);
     },
     validate: (values) => {
       const errors: { name?: string; description?: string; imageUrl?: string; } = {}; 
@@ -119,7 +124,6 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, pres
       setVariants(currentVariants => currentVariants.filter(v => v.tempId !== tempId));
       form.setFormError(null); 
     } else {
-      // form.setFormError("Debe haber al menos una variante de producto."); // This can be replaced by notification if preferred
       showNotification("Debe haber al menos una variante de producto.", 'error');
     }
   };
@@ -246,11 +250,11 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, pres
             {form.formError && <p className="text-sm text-error mt-3 text-center">{form.formError}</p>}
 
             <div className="mt-8 flex justify-end space-x-3">
-              <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={form.isLoading}>
+              <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={form.isLoading || isCoolingDown}>
                 Cancelar
               </button>
-              <button type="submit" className="btn-primary" disabled={form.isLoading}>
-                {form.isLoading ? 'Guardando...' : 'Guardar Producto'}
+              <button type="submit" className="btn-primary" disabled={form.isLoading || isCoolingDown}>
+                {isCoolingDown ? `Guardando... (${timeLeft}s)` : (form.isLoading ? 'Guardando...' : 'Guardar Producto')}
               </button>
             </div>
           </form>

@@ -48,19 +48,26 @@ export const EditableContentProvider: React.FC<{ children: ReactNode }> = ({ chi
       // Fetch Schools
       const { data: schoolsData, error: schoolsError } = await supabase.from('schools').select('*').order('name');
       if (schoolsError) throw schoolsError;
-      setSchools(schoolsData?.map(s => ({...s})) || []);
+      setSchools(schoolsData?.map(s => ({...s, logoUrl: s.logo_url})) || []); // Map logo_url to logoUrl
 
       // Fetch Products
       const { data: productsData, error: productsError } = await supabase.from('products').select('*').order('order_index');
       if (productsError) throw productsError;
       setProducts(productsData?.map(p => ({
           ...p, 
-          schoolId: p.school_id 
+          schoolId: p.school_id,
+          imageUrl: p.image_url // Map image_url to imageUrl
         })) || []);
 
       // Fetch General Site Settings
       const { data: gsData, error: gsError } = await supabase.from('general_site_settings').select('*').eq('id', true).single();
-      if (gsError && gsError.code !== 'PGRST116') console.warn("Error fetching general settings:", gsError.message);
+      if (gsError) {
+        if (gsError.code === 'PGRST116') {
+            console.warn("EditableContentContext: 'general_site_settings' row not found. Using default values. Ensure this table is seeded with one row where id = true.");
+        } else {
+            console.error("Error fetching general settings:", gsError.message);
+        }
+      }
       setHeroCarouselInterval(gsData?.hero_carousel_interval ?? 3);
       setSchoolCarouselAnimationDurationPerItem(gsData?.school_carousel_duration_per_item ?? 5);
       setStoreWazeUrl(gsData?.store_waze_url ?? DEFAULT_WAZE_URL);
@@ -105,7 +112,13 @@ export const EditableContentProvider: React.FC<{ children: ReactNode }> = ({ chi
 
       // Fetch PDF Config
       const { data: pcData, error: pcError } = await supabase.from('pdf_config').select('*').eq('id', true).single();
-      if (pcError && pcError.code !== 'PGRST116') console.warn("Error fetching PDF config:", pcError.message);
+      if (pcError) {
+         if (pcError.code === 'PGRST116') {
+            console.warn("EditableContentContext: 'pdf_config' row not found. Using default values. Ensure this table is seeded with one row where id = true.");
+        } else {
+            console.error("Error fetching PDF config:", pcError.message);
+        }
+      }
       setPdfConfig(pcData ? {
         logoId: pcData.logo_id,
         companyName: pcData.company_name || DEFAULT_PDF_CONFIG.companyName,
@@ -128,118 +141,92 @@ export const EditableContentProvider: React.FC<{ children: ReactNode }> = ({ chi
 
   useEffect(() => { 
     fetchAndSetAllData(); 
-
-    const subscriptionChannel = supabase
-      .channel('public-editable-content')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'schools' },
-        () => { console.log('Schools changed, refreshing data.'); refreshContextData(); }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'products' },
-        () => { console.log('Products changed, refreshing data.'); refreshContextData(); }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'general_site_settings' },
-        () => { console.log('General site settings changed, refreshing data.'); refreshContextData(); }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'hero_slides_config' },
-        () => { console.log('Hero slides config changed, refreshing data.'); refreshContextData(); }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'value_proposition_cards_config' },
-        () => { console.log('Value proposition cards changed, refreshing data.'); refreshContextData(); }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'pdf_config' },
-        () => { console.log('PDF config changed, refreshing data.'); refreshContextData(); }
-      )
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('Subscribed to editable content changes!');
-        }
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.error('EditableContentContext Realtime Error:', status, err ? (err.message || err) : 'Unknown error');
-        }
-      });
-
-    return () => {
-      supabase.removeChannel(subscriptionChannel);
-    };
-  }, [fetchAndSetAllData, refreshContextData]);
+  }, [fetchAndSetAllData]);
 
 
-  const updateSingleRowConfig = async (tableName: string, data: Record<string, any>) => {
+  const updateSingleRowConfig = useCallback(async (tableName: string, data: Record<string, any>) => {
     const { error: updateError } = await supabase.from(tableName).update(data).eq('id', true);
     if (updateError) return { success: false, message: updateError.message };
     try {
-      await refreshContextData(); // Explicit refresh
+      await refreshContextData(); 
       return { success: true };
     } catch (refreshError: any) {
       console.error(`Error refreshing context data after updating ${tableName}:`, refreshError);
       return { success: false, message: `Datos guardados, pero error al refrescar: ${refreshError.message}` };
     }
-  };
+  }, [refreshContextData]);
 
-  const addSchool = async (newSchoolData: Omit<School, 'id' | 'created_at' | 'updated_at'>): Promise<{success: boolean, message?: string, newSchool?: School}> => {
-    const { data, error } = await supabase.from('schools').insert(newSchoolData).select().single();
+  const addSchool = useCallback(async (newSchoolData: Omit<School, 'id' | 'created_at' | 'updated_at'>): Promise<{success: boolean, message?: string, newSchool?: School}> => {
+    const schoolToInsert = {
+      name: newSchoolData.name,
+      logo_url: newSchoolData.logoUrl,
+      category: newSchoolData.category, 
+    };
+    const { data, error } = await supabase.from('schools').insert(schoolToInsert).select().single();
     if (error) return { success: false, message: error.message };
     await refreshContextData();
-    if (data) return { success: true, newSchool: data as School };
+    if (data) return { success: true, newSchool: {...data, logoUrl: data.logo_url} as School };
     return { success: false, message: "Error al añadir colegio."};
-  };
-  const updateSchool = async (schoolId: string, updatedData: Partial<Omit<School, 'id' | 'created_at' | 'updated_at'>>): Promise<{success: boolean, message?: string}> => {
-    const { error } = await supabase.from('schools').update(updatedData).eq('id', schoolId);
+  }, [refreshContextData]);
+
+  const updateSchool = useCallback(async (schoolId: string, updatedData: Partial<Omit<School, 'id' | 'created_at' | 'updated_at'>>): Promise<{success: boolean, message?: string}> => {
+    const dbUpdates: Record<string, any> = { ...updatedData };
+    if (updatedData.logoUrl !== undefined) {
+      dbUpdates.logo_url = updatedData.logoUrl;
+      delete (dbUpdates as any).logoUrl;
+    }
+    const { error } = await supabase.from('schools').update(dbUpdates).eq('id', schoolId);
     if (error) return { success: false, message: error.message };
     await refreshContextData();
     return { success: true };
-  };
-  const deleteSchool = async (schoolId: string): Promise<{success: boolean, message?: string}> => {
+  }, [refreshContextData]);
+
+  const deleteSchool = useCallback(async (schoolId: string): Promise<{success: boolean, message?: string}> => {
     const { error } = await supabase.from('schools').delete().eq('id', schoolId);
     if (error) return { success: false, message: error.message };
     await refreshContextData();
     return { success: true };
-  };
+  }, [refreshContextData]);
 
-  const addProductToContext = async (newProductData: Omit<Product, 'id' | 'orderIndex' | 'created_at' | 'updated_at'>): Promise<{success: boolean, message?: string, newProduct?: Product}> => {
+  const addProductToContext = useCallback(async (newProductData: Omit<Product, 'id' | 'orderIndex' | 'created_at' | 'updated_at'>): Promise<{success: boolean, message?: string, newProduct?: Product}> => {
     const schoolSpecificProducts = products.filter(p => p.schoolId === (newProductData.schoolId || null));
     const newOrderIndex = schoolSpecificProducts.length > 0 ? Math.max(...schoolSpecificProducts.map(p => p.orderIndex)) + 1 : 0;
-    const productToInsert = { 
-        ...newProductData, 
+    
+    const productToInsert: Record<string, any> = { 
+        name: newProductData.name,
+        description: newProductData.description,
+        variants: newProductData.variants,
+        image_url: newProductData.imageUrl, 
         school_id: newProductData.schoolId,
         order_index: newOrderIndex 
     };
-    delete (productToInsert as any).schoolId;
 
     const { data, error } = await supabase.from('products').insert(productToInsert).select().single();
     if (error) return { success: false, message: error.message };
     await refreshContextData();
-    if (data) return { success: true, newProduct: {...data, schoolId: data.school_id} as Product };
+    if (data) return { success: true, newProduct: {...data, schoolId: data.school_id, imageUrl: data.image_url} as Product };
     return { success: false, message: "Error al añadir producto."};
-  };
-  const updateProduct = async (productId: string, updatedData: Partial<Omit<Product, 'id' | 'created_at' | 'updated_at' | 'orderIndex'>>): Promise<{success: boolean, message?: string}> => {
+  }, [products, refreshContextData]);
+
+  const updateProduct = useCallback(async (productId: string, updatedData: Partial<Omit<Product, 'id' | 'created_at' | 'updated_at' | 'orderIndex'>>): Promise<{success: boolean, message?: string}> => {
     const dbUpdates: Record<string, any> = {...updatedData};
     if (updatedData.schoolId !== undefined) { dbUpdates.school_id = updatedData.schoolId; delete (dbUpdates as any).schoolId; }
+    if (updatedData.imageUrl !== undefined) { dbUpdates.image_url = updatedData.imageUrl; delete (dbUpdates as any).imageUrl; }
     
     const { error } = await supabase.from('products').update(dbUpdates).eq('id', productId);
     if (error) return { success: false, message: error.message };
     await refreshContextData();
     return { success: true };
-  };
-  const deleteProduct = async (productId: string): Promise<{success: boolean, message?: string}> => {
+  }, [refreshContextData]);
+
+  const deleteProduct = useCallback(async (productId: string): Promise<{success: boolean, message?: string}> => {
     const { error } = await supabase.from('products').delete().eq('id', productId);
     if (error) return { success: false, message: error.message };
     await refreshContextData();
     return { success: true };
-  };
-  const updateProductOrder = async (schoolId: string | null, orderedProductIds: string[]): Promise<{success: boolean, message?: string}> => {
+  }, [refreshContextData]);
+
+  const updateProductOrder = useCallback(async (schoolId: string | null, orderedProductIds: string[]): Promise<{success: boolean, message?: string}> => {
     const updates = orderedProductIds.map((id, index) => 
       supabase.from('products').update({ order_index: index }).eq('id', id).eq('school_id', schoolId)
     );
@@ -248,9 +235,9 @@ export const EditableContentProvider: React.FC<{ children: ReactNode }> = ({ chi
     if (firstError) return { success: false, message: "Error actualizando orden: " + (firstError as any).message };
     await refreshContextData();
     return { success: true };
-  };
+  }, [refreshContextData]);
 
-  const updateHeroSlides = async (newSlidesMediaItemIds: string[]): Promise<{success: boolean, message?: string}> => {
+  const updateHeroSlides = useCallback(async (newSlidesMediaItemIds: string[]): Promise<{success: boolean, message?: string}> => {
     const { error: deleteError } = await supabase.from('hero_slides_config').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     if (deleteError) {
         console.error("Error deleting hero slides:", deleteError);
@@ -267,16 +254,15 @@ export const EditableContentProvider: React.FC<{ children: ReactNode }> = ({ chi
     }
     
     try {
-      await refreshContextData(); // Explicit refresh
+      await refreshContextData(); 
       return { success: true };
     } catch (refreshError: any) {
       console.error(`Error refreshing context data after updating hero slides:`, refreshError);
       return { success: false, message: `Diapositivas guardadas, pero error al refrescar: ${refreshError.message}` };
     }
-  };
+  }, [refreshContextData]);
 
-
-  const updateValuePropositionCardsData = async (newCardsData: Array<Omit<ValuePropositionCardData, 'id' | 'created_at' | 'updated_at'>>): Promise<{success: boolean, message?: string}> => {
+  const updateValuePropositionCardsData = useCallback(async (newCardsData: Array<Omit<ValuePropositionCardData, 'id' | 'created_at' | 'updated_at'>>): Promise<{success: boolean, message?: string}> => {
     await supabase.from('value_proposition_cards_config').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     if (newCardsData.length > 0) {
       const cardsToInsert = newCardsData.map((card, index) => ({
@@ -291,25 +277,24 @@ export const EditableContentProvider: React.FC<{ children: ReactNode }> = ({ chi
     }
     await refreshContextData();
     return { success: true };
-  };
+  }, [refreshContextData]);
   
-  const updatePdfConfig = async (newConfig: Partial<Omit<PdfConfig, 'updated_at'>>) => { // Made async
+  const updatePdfConfig = useCallback(async (newConfig: Partial<Omit<PdfConfig, 'updated_at'>>) => {
     const dbConfig: Record<string, any> = {...newConfig};
     if (newConfig.logoId !== undefined) { dbConfig.logo_id = newConfig.logoId; delete (dbConfig as any).logoId; }
-    const result = await updateSingleRowConfig('pdf_config', dbConfig); // updateSingleRowConfig is already async
-    // No need to call refreshContextData here, as updateSingleRowConfig does it.
+    const result = await updateSingleRowConfig('pdf_config', dbConfig);
     return result;
-  }
+  }, [updateSingleRowConfig]);
   
-  const updateHeroCarouselInterval = (val: number) => updateSingleRowConfig('general_site_settings', { hero_carousel_interval: Math.max(1, Math.min(60, val)) });
-  const updateSchoolCarouselAnimationDurationPerItem = (val: number) => updateSingleRowConfig('general_site_settings', { school_carousel_duration_per_item: Math.max(1, Math.min(30, val)) });
-  const updateStoreWazeUrl = (val: string) => updateSingleRowConfig('general_site_settings', { store_waze_url: val });
-  const updateStoreGoogleMapsUrl = (val: string) => updateSingleRowConfig('general_site_settings', { store_google_maps_url: val });
-  const updateStoreAddressDescription = (val: string) => updateSingleRowConfig('general_site_settings', { store_address_description: val });
-  const updateVisitStoreSection_MainImageId = (val: string | null) => updateSingleRowConfig('general_site_settings', { visit_store_main_image_id: val });
-  const updateVisitStoreSection_WazeButtonIconId = (val: string | null) => updateSingleRowConfig('general_site_settings', { visit_store_waze_icon_id: val });
-  const updateVisitStoreSection_GoogleMapsButtonIconId = (val: string | null) => updateSingleRowConfig('general_site_settings', { visit_store_gmaps_icon_id: val });
-  const updateBrandLogoId = (val: string | null) => updateSingleRowConfig('general_site_settings', { brand_logo_id: val });
+  const updateHeroCarouselInterval = useCallback((val: number) => updateSingleRowConfig('general_site_settings', { hero_carousel_interval: Math.max(1, Math.min(60, val)) }), [updateSingleRowConfig]);
+  const updateSchoolCarouselAnimationDurationPerItem = useCallback((val: number) => updateSingleRowConfig('general_site_settings', { school_carousel_duration_per_item: Math.max(1, Math.min(30, val)) }), [updateSingleRowConfig]);
+  const updateStoreWazeUrl = useCallback((val: string) => updateSingleRowConfig('general_site_settings', { store_waze_url: val }), [updateSingleRowConfig]);
+  const updateStoreGoogleMapsUrl = useCallback((val: string) => updateSingleRowConfig('general_site_settings', { store_google_maps_url: val }), [updateSingleRowConfig]);
+  const updateStoreAddressDescription = useCallback((val: string) => updateSingleRowConfig('general_site_settings', { store_address_description: val }), [updateSingleRowConfig]);
+  const updateVisitStoreSection_MainImageId = useCallback((val: string | null) => updateSingleRowConfig('general_site_settings', { visit_store_main_image_id: val }), [updateSingleRowConfig]);
+  const updateVisitStoreSection_WazeButtonIconId = useCallback((val: string | null) => updateSingleRowConfig('general_site_settings', { visit_store_waze_icon_id: val }), [updateSingleRowConfig]);
+  const updateVisitStoreSection_GoogleMapsButtonIconId = useCallback((val: string | null) => updateSingleRowConfig('general_site_settings', { visit_store_gmaps_icon_id: val }), [updateSingleRowConfig]);
+  const updateBrandLogoId = useCallback((val: string | null) => updateSingleRowConfig('general_site_settings', { brand_logo_id: val }), [updateSingleRowConfig]);
 
   return (
     <EditableContentContext.Provider value={{

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, FormEvent } from 'react';
 import { useEditableContent } from '../../contexts/EditableContentContext';
 import { useMedia } from '../../contexts/MediaContext';
@@ -8,9 +7,10 @@ import MediaSelectionModal from './MediaSelectionModal';
 import MediaIcon from './icons/MediaIcon'; 
 import useModalState from '../../hooks/useModalState'; 
 import useFormHandler from '../../hooks/useFormHandler'; 
-import { useNotifications } from '../../contexts/NotificationsContext'; // Added
+import { useNotifications } from '../../contexts/NotificationsContext'; 
 import WazeIcon from '../icons/WazeIcon'; 
 import GoogleMapsIcon from '../icons/GoogleMapsIcon';
+import useButtonCooldown from '../../hooks/useButtonCooldown'; // Importar hook
 
 
 interface EditVisitStoreSectionModalProps {
@@ -26,7 +26,7 @@ const EditVisitStoreSectionModal: React.FC<EditVisitStoreSectionModalProps> = ({
     updateVisitStoreSection_MainImageId, updateVisitStoreSection_WazeButtonIconId, updateVisitStoreSection_GoogleMapsButtonIconId,
   } = useEditableContent();
   const { mediaItems } = useMedia();
-  const { showNotification } = useNotifications(); // Added
+  const { showNotification } = useNotifications(); 
 
   const [currentMainImageId, setCurrentMainImageId] = useState<string | null>(null);
   const [currentWazeIconId, setCurrentWazeIconId] = useState<string | null>(null);
@@ -36,6 +36,28 @@ const EditVisitStoreSectionModal: React.FC<EditVisitStoreSectionModalProps> = ({
   const { isOpen: isMediaModalOpen, openModal: openMediaModalDirect, closeModal: closeMediaModal } = useModalState();
   const [mediaTargetField, setMediaTargetField] = useState<'mainImage' | 'wazeIcon' | 'gmapsIcon' | null>(null);
 
+  const saveVisitStoreAction = async (values: { addressDesc: string, wazeUrl: string, gmapsUrl: string }) => {
+    await Promise.all([
+        updateVisitStoreSection_MainImageId(currentMainImageId),
+        updateStoreAddressDescription(values.addressDesc),
+        updateStoreWazeUrl(values.wazeUrl),
+        updateVisitStoreSection_WazeButtonIconId(currentWazeIconId),
+        updateStoreGoogleMapsUrl(values.gmapsUrl),
+        updateVisitStoreSection_GoogleMapsButtonIconId(currentGMapsIconId)
+    ]);
+    showNotification("Sección 'Visita Nuestra Tienda' actualizada.", 'success');
+    handleCloseModal();
+  };
+  
+  const { 
+    trigger: triggerSaveChanges, 
+    isCoolingDown, 
+    timeLeft 
+  } = useButtonCooldown(
+    async (values: { addressDesc: string, wazeUrl: string, gmapsUrl: string }) => saveVisitStoreAction(values), 
+    2000
+  );
+
   const form = useFormHandler({
     initialValues: {
       addressDesc: storeAddressDescription,
@@ -43,22 +65,7 @@ const EditVisitStoreSectionModal: React.FC<EditVisitStoreSectionModalProps> = ({
       gmapsUrl: storeGoogleMapsUrl,
     },
     onSubmit: async (values) => {
-      try {
-        // Use Promise.all to wait for all updates
-        await Promise.all([
-            updateVisitStoreSection_MainImageId(currentMainImageId),
-            updateStoreAddressDescription(values.addressDesc),
-            updateStoreWazeUrl(values.wazeUrl),
-            updateVisitStoreSection_WazeButtonIconId(currentWazeIconId),
-            updateStoreGoogleMapsUrl(values.gmapsUrl),
-            updateVisitStoreSection_GoogleMapsButtonIconId(currentGMapsIconId)
-        ]);
-        showNotification("Sección 'Visita Nuestra Tienda' actualizada.", 'success');
-        handleCloseModal();
-      } catch (error) {
-        showNotification("Error al actualizar la sección.", 'error');
-        console.error("Error updating visit store section:", error);
-      }
+      await triggerSaveChanges(values);
     },
     validate: (values) => {
       const errors: { addressDesc?: string; wazeUrl?: string; gmapsUrl?: string; } = {};
@@ -210,9 +217,14 @@ const EditVisitStoreSectionModal: React.FC<EditVisitStoreSectionModalProps> = ({
           </form>
 
           <div className="mt-auto pt-6 border-t border-brand-gray-light flex justify-end space-x-3">
-            <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={form.isLoading}>Cancelar</button>
-            <button type="button" onClick={form.handleSubmit as any} className="btn-primary" disabled={form.isLoading}>
-              {form.isLoading ? 'Guardando...' : 'Guardar Cambios'}
+            <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={form.isLoading || isCoolingDown}>Cancelar</button>
+            <button 
+              type="button" 
+              onClick={form.handleSubmit as any} 
+              className="btn-primary" 
+              disabled={form.isLoading || isCoolingDown}
+            >
+              {isCoolingDown ? `Guardando... (${timeLeft}s)` : (form.isLoading ? 'Guardando...' : 'Guardar Cambios')}
             </button>
           </div>
         </div>

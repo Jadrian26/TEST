@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, FormEvent } from 'react';
 import { useEditableContent } from '../../contexts/EditableContentContext';
 import { School, MediaItem } from '../../types'; 
@@ -6,7 +5,8 @@ import CloseIcon from '../icons/CloseIcon';
 import MediaSelectionModal from './MediaSelectionModal'; 
 import useModalState from '../../hooks/useModalState'; 
 import useFormHandler from '../../hooks/useFormHandler'; 
-import { useNotifications } from '../../contexts/NotificationsContext'; // Added
+import { useNotifications } from '../../contexts/NotificationsContext'; 
+import useButtonCooldown from '../../hooks/useButtonCooldown'; // Importar hook
 
 interface EditSchoolModalProps {
   isOpen: boolean;
@@ -16,38 +16,43 @@ interface EditSchoolModalProps {
 
 const EditSchoolModal: React.FC<EditSchoolModalProps> = ({ isOpen, onClose, schoolToEdit }) => {
   const { updateSchool: updateSchoolContext } = useEditableContent();
-  const { showNotification } = useNotifications(); // Added
+  const { showNotification } = useNotifications(); 
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
 
   const { isOpen: isMediaModalOpen, openModal: openMediaModal, closeModal: closeMediaModal } = useModalState();
   
-  const form = useFormHandler({
-    initialValues: { name: '', logoUrl: '' },
-    onSubmit: async (values) => {
-      if (!schoolToEdit) {
+  const updateSchoolAction = async (values: { name: string, logoUrl: string }) => {
+     if (!schoolToEdit) {
         showNotification("Error: No hay información del colegio para editar.", 'error');
         return;
       }
-      try {
-        // Make sure to pass only the fields that are part of the School type for update
-        const schoolUpdateData: Partial<Omit<School, 'id' | 'created_at' | 'updated_at'>> = {
-             name: values.name, 
-             logoUrl: values.logoUrl
-        };
-        if (schoolToEdit.category) schoolUpdateData.category = schoolToEdit.category; // Preserve existing category if not changed
+      const schoolUpdateData: Partial<Omit<School, 'id' | 'created_at' | 'updated_at'>> = {
+           name: values.name, 
+           logoUrl: values.logoUrl
+      };
+      if (schoolToEdit.category) schoolUpdateData.category = schoolToEdit.category; 
 
-        const result = await updateSchoolContext(schoolToEdit.id, schoolUpdateData);
-        if (result.success) {
-          showNotification(`Colegio "${values.name}" actualizado exitosamente.`, 'success');
-          handleCloseModal();
-        } else {
-          showNotification(result.message || 'Error al actualizar el colegio.', 'error');
-        }
-      } catch (error) {
-        showNotification('Error al actualizar el colegio.', 'error');
-        console.error("Error updating school:", error);
+      const result = await updateSchoolContext(schoolToEdit.id, schoolUpdateData);
+      if (result.success) {
+        showNotification(`Colegio "${values.name}" actualizado exitosamente.`, 'success');
+        handleCloseModal();
+      } else {
+        showNotification(result.message || 'Error al actualizar el colegio.', 'error');
       }
+  };
+
+  const { 
+    trigger: triggerUpdateSchool, 
+    isCoolingDown, 
+    timeLeft 
+  } = useButtonCooldown(updateSchoolAction, 2500);
+
+
+  const form = useFormHandler({
+    initialValues: { name: '', logoUrl: '' },
+    onSubmit: async (values) => {
+      await triggerUpdateSchool(values);
     },
     validate: (values) => {
       const errors: { name?: string; logoUrl?: string } = {};
@@ -145,11 +150,11 @@ const EditSchoolModal: React.FC<EditSchoolModalProps> = ({ isOpen, onClose, scho
             
             {form.formError && <p className="text-sm text-error mb-3">{form.formError}</p>}
             <div className="mt-6 flex justify-end space-x-3">
-              <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={form.isLoading}>
+              <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={form.isLoading || isCoolingDown}>
                 Cancelar
               </button>
-              <button type="submit" className="btn-primary" disabled={form.isLoading}>
-                {form.isLoading ? 'Guardando...' : 'Guardar Cambios'}
+              <button type="submit" className="btn-primary" disabled={form.isLoading || isCoolingDown}>
+                {isCoolingDown ? `Guardando... (${timeLeft}s)` : (form.isLoading ? 'Guardando...' : 'Guardar Cambios')}
               </button>
             </div>
           </form>

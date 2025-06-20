@@ -1,8 +1,8 @@
-
 import React, { useState, useEffect } from 'react';
 import { useEditableContent } from '../../contexts/EditableContentContext';
 import CloseIcon from '../icons/CloseIcon';
-import { useNotifications } from '../../contexts/NotificationsContext'; // Added
+import { useNotifications } from '../../contexts/NotificationsContext'; 
+import useButtonCooldown from '../../hooks/useButtonCooldown'; // Importar hook
 
 interface EditSchoolCarouselSettingsModalProps {
   isOpen: boolean;
@@ -14,10 +14,22 @@ const EditSchoolCarouselSettingsModal: React.FC<EditSchoolCarouselSettingsModalP
     schoolCarouselAnimationDurationPerItem,
     updateSchoolCarouselAnimationDurationPerItem
   } = useEditableContent();
-  const { showNotification } = useNotifications(); // Added
+  const { showNotification } = useNotifications(); 
 
   const [currentAnimationDuration, setCurrentAnimationDuration] = useState<number>(schoolCarouselAnimationDurationPerItem);
   const [isVisible, setIsVisible] = useState(false);
+
+  const saveSettingsAction = async () => {
+    await updateSchoolCarouselAnimationDurationPerItem(currentAnimationDuration);
+    showNotification("Ajustes del carrusel de colegios actualizados.", 'success');
+    handleCloseModal();
+  };
+
+  const { 
+    trigger: triggerSaveChanges, 
+    isCoolingDown, 
+    timeLeft 
+  } = useButtonCooldown(saveSettingsAction, 2000);
 
   useEffect(() => {
     if (isOpen) {
@@ -38,17 +50,6 @@ const EditSchoolCarouselSettingsModal: React.FC<EditSchoolCarouselSettingsModalP
   const handleAnimationDurationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
     setCurrentAnimationDuration(isNaN(val) ? schoolCarouselAnimationDurationPerItem : val);
-  };
-
-  const handleSaveChanges = () => {
-    try {
-      updateSchoolCarouselAnimationDurationPerItem(currentAnimationDuration);
-      showNotification("Ajustes del carrusel de colegios actualizados.", 'success');
-      handleCloseModal();
-    } catch (error) {
-      showNotification("Error al actualizar los ajustes del carrusel.", 'error');
-      console.error("Error saving school carousel settings:", error);
-    }
   };
 
   if (!isOpen && !isVisible) return null;
@@ -96,11 +97,16 @@ const EditSchoolCarouselSettingsModal: React.FC<EditSchoolCarouselSettingsModalP
         </div>
 
         <div className="mt-6 flex justify-end space-x-3">
-          <button type="button" onClick={handleCloseModal} className="btn-ghost">
+          <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={isCoolingDown}>
             Cancelar
           </button>
-          <button type="button" onClick={handleSaveChanges} className="btn-primary">
-            Guardar Cambios
+          <button 
+            type="button" 
+            onClick={triggerSaveChanges} 
+            className="btn-primary"
+            disabled={isCoolingDown}
+          >
+            {isCoolingDown ? `Guardando... (${timeLeft}s)` : 'Guardar Cambios'}
           </button>
         </div>
       </div>

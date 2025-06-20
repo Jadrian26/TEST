@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useEditableContent } from '../../contexts/EditableContentContext';
 import { useMedia } from '../../contexts/MediaContext';
@@ -7,8 +6,9 @@ import MediaSelectionModal from '../../components/admin/MediaSelectionModal';
 import useModalState from '../../hooks/useModalState';
 import { useNotifications } from '../../contexts/NotificationsContext';
 import MediaIcon from '../../components/admin/icons/MediaIcon';
-import SettingsIcon from '../../components/admin/icons/SettingsIcon'; // Reuse or create specific PDF icon
+import SettingsIcon from '../../components/admin/icons/SettingsIcon'; 
 import { APP_NAME, SECONDARY_COLOR } from '../../constants';
+import useButtonCooldown from '../../hooks/useButtonCooldown'; // Importar hook
 
 
 const AdminPdfConfigPage: React.FC = () => {
@@ -17,9 +17,25 @@ const AdminPdfConfigPage: React.FC = () => {
   const { showNotification } = useNotifications();
 
   const [currentConfig, setCurrentConfig] = useState<PdfConfig>(pdfConfig);
-  const [isSaving, setIsSaving] = useState(false);
+  // isSaving ya no es necesario, useButtonCooldown lo maneja
 
   const { isOpen: isMediaModalOpen, openModal: openMediaModal, closeModal: closeMediaModal } = useModalState();
+
+  const saveConfigAction = async () => {
+    const configToSave: Partial<Omit<PdfConfig, 'updated_at'>> = { ...currentConfig };
+    const result = await updatePdfConfigContext(configToSave);
+    if(result.success) {
+      showNotification("Configuración del PDF actualizada exitosamente.", "success");
+    } else {
+      showNotification(result.message || "Error al actualizar la configuración del PDF.", "error");
+    }
+  };
+
+  const { 
+    trigger: triggerSaveChanges, 
+    isCoolingDown, 
+    timeLeft 
+  } = useButtonCooldown(saveConfigAction, 2000);
 
   useEffect(() => {
     if (!isLoadingContent) {
@@ -47,22 +63,7 @@ const AdminPdfConfigPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSaving(true);
-    try {
-      // Prepare data for context, removing client-side only properties if any
-      const configToSave: Partial<Omit<PdfConfig, 'updated_at'>> = { ...currentConfig };
-      const result = await updatePdfConfigContext(configToSave);
-      if(result.success) {
-        showNotification("Configuración del PDF actualizada exitosamente.", "success");
-      } else {
-        showNotification(result.message || "Error al actualizar la configuración del PDF.", "error");
-      }
-    } catch (error) {
-      showNotification("Error al actualizar la configuración del PDF.", "error");
-      console.error("Error updating PDF config:", error);
-    } finally {
-      setIsSaving(false);
-    }
+    await triggerSaveChanges();
   };
   
   const logoPreviewUrl = currentConfig.logoId ? mediaItems.find(item => item.id === currentConfig.logoId)?.public_url : null;
@@ -83,7 +84,6 @@ const AdminPdfConfigPage: React.FC = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-8">
-        {/* Logo Section */}
         <section className="bg-brand-primary p-5 rounded-lg shadow-card">
           <h2 className="text-lg font-semibold text-brand-secondary mb-3">Logo del PDF</h2>
           <div className="flex items-center gap-4 mb-2">
@@ -108,7 +108,6 @@ const AdminPdfConfigPage: React.FC = () => {
            <p className="text-xs text-brand-gray-medium">Si no se selecciona un logo, se usará el logo por defecto del sistema.</p>
         </section>
 
-        {/* Company Info Section */}
         <section className="bg-brand-primary p-5 rounded-lg shadow-card">
           <h2 className="text-lg font-semibold text-brand-secondary mb-3">Información de la Empresa (Para PDF)</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -135,7 +134,6 @@ const AdminPdfConfigPage: React.FC = () => {
           </div>
         </section>
 
-        {/* Footer and Accent Color Section */}
         <section className="bg-brand-primary p-5 rounded-lg shadow-card">
           <h2 className="text-lg font-semibold text-brand-secondary mb-3">Personalización Adicional del PDF</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -155,8 +153,8 @@ const AdminPdfConfigPage: React.FC = () => {
         </section>
         
         <div className="flex justify-end pt-4 border-t border-brand-gray-light">
-          <button type="submit" className="btn-primary" disabled={isSaving}>
-            {isSaving ? 'Guardando...' : 'Guardar Configuración'}
+          <button type="submit" className="btn-primary" disabled={isCoolingDown}>
+            {isCoolingDown ? `Guardando... (${timeLeft}s)` : 'Guardar Configuración'}
           </button>
         </div>
       </form>

@@ -1,32 +1,33 @@
 
-import React, { useMemo, ChangeEvent, useCallback } from 'react';
+import React, { useMemo, ChangeEvent, useCallback, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useEditableContent } from '../../contexts/EditableContentContext'; 
 import { Order, UserProfile, School } from '../../types'; 
 import ViewIcon from '../../components/admin/icons/ViewIcon';
-import SettingsIcon from '../../components/admin/icons/SettingsIcon'; // Import SettingsIcon
+import SettingsIcon from '../../components/admin/icons/SettingsIcon'; 
 import { useNotifications } from '../../contexts/NotificationsContext';
 import WazeIcon from '../../components/icons/WazeIcon';
 import GoogleMapsIcon from '../../components/icons/GoogleMapsIcon';
 import { useSearchAndFilter } from '../../hooks/useSearchAndFilter';
+import useDebounce from '../../hooks/useDebounce'; // Import useDebounce
 
 interface ExtendedOrder extends Order {
-  customerName: string; // Nombre del usuario dueño del pedido
-  customerEmail: string; // Email del usuario dueño del pedido
-  customerSchoolId?: string | null; // SchoolId del usuario dueño del pedido
+  customerName: string; 
+  customerEmail: string; 
+  customerSchoolId?: string | null; 
 }
 
 const AdminViewOrdersPage: React.FC = () => {
-  const { currentUser, allUsers, updateOrderStatus } = useAuth(); // Changed registeredUsers to allUsers
+  const { currentUser, allUsers, updateOrderStatus } = useAuth(); 
   const { schools, isLoading: isLoadingSchools } = useEditableContent(); 
   const { showNotification } = useNotifications(); 
   
   const allOrdersForRole = useMemo<ExtendedOrder[]>(() => {
     let orders: ExtendedOrder[] = [];
-    allUsers.forEach(user => { // Changed registeredUsers to allUsers
+    allUsers.forEach(user => { 
       user.orders.forEach(order => {
-        const orderOwner = allUsers.find(u => u.id === order.userId); // Changed registeredUsers to allUsers
+        const orderOwner = allUsers.find(u => u.id === order.userId); 
         
         orders.push({
           ...order,
@@ -38,26 +39,33 @@ const AdminViewOrdersPage: React.FC = () => {
       });
     });
     return orders.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [allUsers]); // Changed registeredUsers to allUsers
+  }, [allUsers]); 
+
+  const [localSearchTerm, setLocalSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(localSearchTerm, 300);
 
   const {
     processedData: filteredOrders,
-    searchTerm,
-    setSearchTerm,
+    // searchTerm, // Not used directly for input value anymore
+    setSearchTerm, // Used with debounced value
     filters,
     setFilter
   } = useSearchAndFilter<ExtendedOrder>(allOrdersForRole, {
     searchKeys: ['id', 'customerName', 'customerEmail', 'customerIdCardForOrder']
   });
 
-  const handleStatusChange = async (orderDbId: string, newStatus: Order['status']) => { // Changed orderId to orderDbId for clarity
-    const originalOrderData = allOrdersForRole.find(o => o.db_id === orderDbId); // Find by db_id
+  useEffect(() => {
+    setSearchTerm(debouncedSearchTerm);
+  }, [debouncedSearchTerm, setSearchTerm]);
+
+  const handleStatusChange = async (orderDbId: string, newStatus: Order['status']) => { 
+    const originalOrderData = allOrdersForRole.find(o => o.db_id === orderDbId); 
     if (!originalOrderData) {
       showNotification('Error: No se encontró el pedido original.', 'error');
       return;
     }
 
-    const result = await updateOrderStatus(orderDbId, newStatus); // Use orderDbId (actual UUID)
+    const result = await updateOrderStatus(orderDbId, newStatus); 
     showNotification(result.message || (result.success ? 'Estado del pedido actualizado.' : 'Error al actualizar el estado.'), result.success ? 'success' : 'error');
   };
   
@@ -106,8 +114,8 @@ const AdminViewOrdersPage: React.FC = () => {
               type="text"
               id="orderSearch"
               placeholder="Escribe para buscar..."
-              value={searchTerm}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+              value={localSearchTerm}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setLocalSearchTerm(e.target.value)}
               className="w-full text-sm"
             />
           </div>
@@ -193,7 +201,7 @@ const AdminViewOrdersPage: React.FC = () => {
                     <td className="px-4 py-2">
                       <select 
                         value={order.status} 
-                        onChange={(e) => handleStatusChange(order.db_id, e.target.value as Order['status'])} // Use order.db_id
+                        onChange={(e) => handleStatusChange(order.db_id, e.target.value as Order['status'])} 
                         className={`text-xs p-1.5 border rounded-md w-full max-w-[120px] focus:ring-1 focus:outline-none transition-colors ${
                             order.status === 'Delivered' ? 'bg-success/10 text-green-700 border-success/30 focus:ring-success' : 
                             order.status === 'Shipped' ? 'bg-brand-tertiary/10 text-brand-secondary border-brand-tertiary/30 focus:ring-brand-tertiary' :
@@ -207,17 +215,17 @@ const AdminViewOrdersPage: React.FC = () => {
                         ))}
                       </select>
                     </td>
-                    <td className="px-4 py-2 text-xs max-w-xs truncate" title={order.shippingAddress?.primaryAddress || 'Retiro en Local'}> {/* Handle null shippingAddress */}
+                    <td className="px-4 py-2 text-xs max-w-xs truncate" title={order.shippingAddress?.primaryAddress || 'Retiro en Local'}> 
                         {order.deliveryMethod === 'pickup' ? 'Retiro en Local' : `${order.shippingAddress?.primaryAddress || ''}${order.shippingAddress?.apartmentOrHouseNumber ? `, ${order.shippingAddress.apartmentOrHouseNumber}` : ''}`}
                     </td>
                     <td className="px-4 py-2 text-center">
                       <div className="flex space-x-1.5 justify-center">
-                        {order.shippingAddress?.wazeUrl && ( // Handle null shippingAddress
+                        {order.shippingAddress?.wazeUrl && ( 
                           <a href={order.shippingAddress.wazeUrl} target="_blank" rel="noopener noreferrer" className="icon-btn !p-1 text-brand-secondary hover:text-brand-tertiary" title="Abrir en Waze">
                             <WazeIcon className="w-4 h-4" ariaHidden={true}/>
                           </a>
                         )}
-                        {order.shippingAddress?.googleMapsUrl && ( // Handle null shippingAddress
+                        {order.shippingAddress?.googleMapsUrl && ( 
                           <a href={order.shippingAddress.googleMapsUrl} target="_blank" rel="noopener noreferrer" className="icon-btn !p-1 text-brand-secondary hover:text-brand-tertiary" title="Abrir en Google Maps">
                             <GoogleMapsIcon className="w-4 h-4" ariaHidden={true}/>
                           </a>

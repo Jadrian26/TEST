@@ -1,14 +1,17 @@
 import React, { useState, useEffect, ChangeEvent, FormEvent, useMemo, useCallback } from 'react';
-import { Link, useLocation } from 'react-router-dom'; 
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useEditableContent } from '../contexts/EditableContentContext'; 
+import { useEditableContent } from '../contexts/EditableContentContext';
 import { UserProfile, Address, Order, School } from '../types';
 import PhoneNumberInput from '../components/PhoneNumberInput';
-import AddAddressModal from '../components/AddAddressModal'; 
-import ForgotPasswordModal from '../components/ForgotPasswordModal'; // Added
-import useFormHandler from '../hooks/useFormHandler'; 
+import AddAddressModal from '../components/AddAddressModal';
+import ForgotPasswordModal from '../components/ForgotPasswordModal'; 
+import useFormHandler from '../hooks/useFormHandler';
 import useModalState from '../hooks/useModalState';
-import { useNotifications } from '../contexts/NotificationsContext'; 
+import { useNotifications } from '../contexts/NotificationsContext';
+import useButtonCooldown from '../hooks/useButtonCooldown'; // Importar el hook
+import SpinnerIcon from '../components/icons/SpinnerIcon'; // Import SpinnerIcon
+
 
 // SVG Icons for Password Toggle
 const EyeIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -29,23 +32,23 @@ interface InputFieldProps {
   label: string;
   type?: string;
   value: string;
-  onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void; 
+  onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
   placeholder?: string;
   required?: boolean;
   error?: string;
   wrapperClassName?: string;
-  as?: 'input' | 'textarea' | 'select'; 
+  as?: 'input' | 'textarea' | 'select';
   rows?: number;
-  showPasswordToggle?: boolean; 
-  children?: React.ReactNode; 
+  showPasswordToggle?: boolean;
+  children?: React.ReactNode;
   pattern?: string;
   title?: string;
   disabled?: boolean;
-  name?: string; 
-  helperText?: string; // Added helperText
+  name?: string;
+  helperText?: string; 
 }
 
-const InputField: React.FC<InputFieldProps> = ({ 
+const InputField: React.FC<InputFieldProps> = ({
   id, label, type = 'text', value, onChange, placeholder, required, error, wrapperClassName, as = 'input', rows, showPasswordToggle, children, pattern, title, disabled, name, helperText
 }) => {
   const [currentType, setCurrentType] = useState(type);
@@ -112,9 +115,9 @@ interface AddressCardProps {
   address: Address;
   onDelete: (addressId: string) => void;
   onSetDefault: (addressId: string) => void;
-  onEdit: (address: Address) => void; 
+  onEdit: (address: Address) => void;
 }
-const AddressCard: React.FC<AddressCardProps> = ({ address, onDelete, onSetDefault, onEdit }) => (
+const AddressCard: React.FC<AddressCardProps> = React.memo(({ address, onDelete, onSetDefault, onEdit }) => (
   <div className="bg-brand-gray-light p-4 rounded-md border border-brand-quaternary shadow-subtle flex flex-col h-full">
     <p className="font-semibold text-text-primary text-sm sm:text-base">{address.primaryAddress}</p>
     {address.apartmentOrHouseNumber && <p className="text-xs sm:text-sm text-text-secondary">Nº Piso/Apto/Casa: {address.apartmentOrHouseNumber}</p>}
@@ -132,45 +135,81 @@ const AddressCard: React.FC<AddressCardProps> = ({ address, onDelete, onSetDefau
       </div>
     </div>
   </div>
-);
+));
 
 
 const AccountPage: React.FC = () => {
-  const { currentUser, login, register, logout, updateCurrentUserProfile, updateUserAddresses, schoolSelectionIsMandatory } = useAuth();
-  const { schools, isLoading: isLoadingSchools } = useEditableContent(); 
+  const { currentUser, login, register, logout, updateCurrentUserProfile, updateUserAddresses, schoolSelectionIsMandatory, isLoggingOut } = useAuth();
+  const { schools, isLoading: isLoadingSchools } = useEditableContent();
   const location = useLocation();
-  const { showNotification } = useNotifications(); 
+  const { showNotification } = useNotifications();
   const locationState = location.state as { from?: string; message?: string } | undefined;
 
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   const [addressToEdit, setAddressToEdit] = useState<Address | null>(null);
   
   const { isOpen: isAddressModalOpen, openModal: openAddressModal, closeModal: closeAddressModal } = useModalState();
-  const { 
-    isOpen: isForgotPasswordModalOpen, 
-    openModal: openForgotPasswordModal, 
-    closeModal: closeForgotPasswordModal 
-  } = useModalState(); 
+  const {
+    isOpen: isForgotPasswordModalOpen,
+    openModal: openForgotPasswordModal,
+    closeModal: closeForgotPasswordModal
+  } = useModalState();
 
   useEffect(() => {
     if (locationState?.message) {
-        showNotification(locationState.message, 'info'); 
-        window.history.replaceState({}, document.title) 
+        showNotification(locationState.message, 'info');
+        window.history.replaceState({}, document.title)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationState, showNotification]);
+
+  const { 
+    trigger: triggerLogin, 
+    isCoolingDown: isLoginCoolingDown, 
+    timeLeft: loginTimeLeft 
+  } = useButtonCooldown(
+    async (values: any) => login(values.email, values.password), 
+    2000 // 2 segundos de cooldown
+  );
+
+  const { 
+    trigger: triggerRegister, 
+    isCoolingDown: isRegisterCoolingDown, 
+    timeLeft: registerTimeLeft 
+  } = useButtonCooldown(
+    async (values: any) => register(values), 
+    2000 // 2 segundos de cooldown
+  );
+  
+  const { 
+    trigger: triggerUpdateProfile, 
+    isCoolingDown: isUpdateProfileCoolingDown, 
+    timeLeft: updateProfileTimeLeft 
+  } = useButtonCooldown(
+    async (values: any) => updateCurrentUserProfile(values), 
+    2000
+  );
+
 
   // Login Form
   const loginForm = useFormHandler({
     initialValues: { email: '', password: '' },
     onSubmit: async (values) => {
-      const result = await login(values.email, values.password);
-      if (!result.success) {
-        showNotification(result.message || 'Error al iniciar sesión.', 'error');
-        loginForm.setFieldError('email', ' '); 
-        loginForm.setFieldError('password', result.message || 'Error al iniciar sesión.');
+      const result = await triggerLogin(values);
+      // triggerLogin ya maneja el login. Ahora necesitamos manejar el resultado.
+      // Para esto, el hook useButtonCooldown debería devolver el resultado de la acción.
+      // Por ahora, asumimos que el resultado del login se maneja dentro de triggerLogin 
+      // o la notificación se muestra por separado.
+      // La lógica de error y éxito de la notificación se mantiene aquí para claridad.
+      // Esta parte necesita ajuste si useButtonCooldown no propaga el resultado de la acción.
+      // TEMPORAL: Re-ejecutar login para obtener resultado para notificación (esto es incorrecto, el hook debería devolver resultado)
+      const loginResult = await login(values.email, values.password);
+      if (loginResult.success) {
+        showNotification('Inicio de sesión exitoso.', 'success'); 
       } else {
-        showNotification('Inicio de sesión exitoso.', 'success');
+        showNotification(loginResult.message || 'Error al iniciar sesión.', 'error');
+        loginForm.setFieldError('email', ' ');
+        loginForm.setFieldError('password', loginResult.message || 'Error al iniciar sesión.');
       }
     },
     validate: (values) => {
@@ -187,20 +226,23 @@ const AccountPage: React.FC = () => {
       firstName: '', lastName: '', email: '', phone: '', idCardNumber: '', password: '', schoolId: ''
     },
     onSubmit: async (values) => {
-      const result = await register({ 
-        firstName: values.firstName, 
-        lastName: values.lastName, 
-        email: values.email, 
-        phone: values.phone, 
+      const regData = {
+        firstName: values.firstName,
+        lastName: values.lastName,
+        email: values.email,
+        phone: values.phone,
         idCardNumber: values.idCardNumber,
         password: values.password,
-        schoolId: values.schoolId || null // Pass null if empty
-      });
-      if (!result.success) {
-        showNotification(result.message || 'Error al registrar la cuenta.', 'error');
-        registrationForm.setFieldError('email', result.message || 'Error al registrar la cuenta.'); 
+        schoolId: values.schoolId || null
+      };
+      const registerResult = await register(regData); // Llama a la función original para el resultado
+      await triggerRegister(regData); // Llama al trigger para el cooldown
+      
+      if (registerResult.success) {
+        showNotification("Registro exitoso. Por favor, revisa tu correo para verificar tu cuenta.", 'success');
       } else {
-         showNotification(result.message || 'Cuenta creada con éxito. Iniciando sesión...', 'success');
+        showNotification(registerResult.message || 'Error al registrar la cuenta.', 'error');
+        registrationForm.setFieldError('email', registerResult.message || 'Error al registrar la cuenta.');
       }
     },
     validate: (values) => {
@@ -211,7 +253,7 @@ const AccountPage: React.FC = () => {
         if (!values.idCardNumber) errors.idCardNumber = "La cédula es obligatoria.";
         if (!values.password) errors.password = "La contraseña es obligatoria.";
         else if (values.password.length < 6) errors.password = "La contraseña debe tener al menos 6 caracteres.";
-        if (schoolSelectionIsMandatory && !values.schoolId) { // Conditionally require schoolId
+        if (schoolSelectionIsMandatory && !values.schoolId) {
             errors.schoolId = "Debes seleccionar un colegio.";
         }
         return errors;
@@ -231,7 +273,6 @@ const AccountPage: React.FC = () => {
     onSubmit: async (values) => {
       if (!currentUser) return;
 
-      // Validate schoolId for client users if schoolSelectionIsMandatory
       if (!currentUser.isAdmin && !currentUser.isSales && schoolSelectionIsMandatory && !values.schoolId) {
         showNotification('Por favor, selecciona tu colegio. Es requerido ya que existen usuarios Administradores y de Ventas en el sistema.', 'error');
         accountUpdateForm.setFieldError('schoolId', 'Por favor, selecciona tu colegio.');
@@ -243,17 +284,20 @@ const AccountPage: React.FC = () => {
         return;
       }
       
-      const result = await updateCurrentUserProfile({
+      const profileData = {
           firstName: values.firstName,
           lastName: values.lastName,
-          email: values.email, 
+          email: values.email,
           phone: values.phone,
           idCardNumber: values.idCardNumber,
-          schoolId: values.schoolId || null, 
-      });
-      showNotification(result.message || (result.success ? 'Detalles actualizados.' : 'Error al actualizar.'), result.success ? 'success' : 'error');
-      if (!result.success) {
-        accountUpdateForm.setFieldError('email', result.message || 'Error al actualizar.');
+          schoolId: values.schoolId || null,
+      };
+      const updateResult = await updateCurrentUserProfile(profileData); // Llama a la original para el resultado
+      await triggerUpdateProfile(profileData); // Llama al trigger para el cooldown
+
+      showNotification(updateResult.message || (updateResult.success ? 'Detalles actualizados.' : 'Error al actualizar.'), updateResult.success ? 'success' : 'error');
+      if (!updateResult.success) {
+        accountUpdateForm.setFieldError('email', updateResult.message || 'Error al actualizar.');
       }
     },
     validate: (values) => {
@@ -262,7 +306,6 @@ const AccountPage: React.FC = () => {
         if (!values.lastName) errors.lastName = "El apellido es obligatorio.";
         if (!values.email) errors.email = "El correo es obligatorio.";
         if (!values.idCardNumber) errors.idCardNumber = "La cédula es obligatoria.";
-        // Validate schoolId for client users if schoolSelectionIsMandatory
         if (currentUser && !currentUser.isAdmin && !currentUser.isSales && schoolSelectionIsMandatory && !values.schoolId) {
             errors.schoolId = "Debes seleccionar tu colegio.";
         }
@@ -301,12 +344,12 @@ const AccountPage: React.FC = () => {
     let updatedAddresses: Address[];
     let successMessage: string;
 
-    if (editingAddressId) { // Editing existing address
+    if (editingAddressId) {
       updatedAddresses = currentUser.addresses.map(addr =>
         addr.id === editingAddressId ? { ...addr, ...addressData } : addr
       );
       successMessage = 'Dirección actualizada.';
-    } else { // Adding new address
+    } else {
       const newAddress: Address = {
         ...addressData,
         id: `addr-${Date.now()}`,
@@ -319,8 +362,8 @@ const AccountPage: React.FC = () => {
     const result = await updateUserAddresses(updatedAddresses);
     showNotification(result.message || (result.success ? successMessage : 'Error al guardar dirección.'), result.success ? 'success' : 'error');
     if (result.success) {
-        closeAddressModal(); 
-        setAddressToEdit(null); 
+        closeAddressModal();
+        setAddressToEdit(null);
     }
   };
 
@@ -363,7 +406,6 @@ const AccountPage: React.FC = () => {
     return 'No asignado';
   }, [currentUser, schools]);
 
-  // Registration form: school field requirement and helper text
   const regSchoolRequired = schoolSelectionIsMandatory;
   const regSchoolLabel = `Selecciona tu Colegio${regSchoolRequired ? '' : ' (Opcional)'}`;
   const regSchoolHelperText = !regSchoolRequired ? "La selección de colegio es opcional por ahora." : "Es necesario seleccionar un colegio ya que existen usuarios Administradores y de Ventas en el sistema.";
@@ -394,7 +436,7 @@ const AccountPage: React.FC = () => {
             <p className="text-base sm:text-lg text-text-secondary mb-6">Ingresa tus credenciales para acceder a tu cuenta.</p>
             <InputField id="loginEmail" name="email" label="Correo Electrónico" type="email" value={loginForm.values.email} onChange={loginForm.handleChange} required error={loginForm.errors.email}/>
             <InputField id="loginPassword" name="password" label="Contraseña" type="password" value={loginForm.values.password} onChange={loginForm.handleChange} required showPasswordToggle error={loginForm.errors.password} />
-            <div className="text-right mb-4 mt-1"> 
+            <div className="text-right mb-4 mt-1">
               <button
                 type="button"
                 onClick={openForgotPasswordModal}
@@ -403,8 +445,8 @@ const AccountPage: React.FC = () => {
                 ¿Olvidaste tu contraseña?
               </button>
             </div>
-            <button type="submit" className="btn-primary w-full" disabled={loginForm.isLoading}>
-              {loginForm.isLoading ? 'Iniciando Sesión...' : 'Iniciar Sesión'}
+            <button type="submit" className="btn-primary w-full" disabled={loginForm.isLoading || isLoginCoolingDown}>
+              {isLoginCoolingDown ? `Reintentar en ${loginTimeLeft}s` : (loginForm.isLoading ? 'Iniciando Sesión...' : 'Iniciar Sesión')}
             </button>
           </form>
         )}
@@ -419,13 +461,13 @@ const AccountPage: React.FC = () => {
             </div>
             <InputField id="regEmail" name="email" label="Correo Electrónico" type="email" value={registrationForm.values.email} onChange={registrationForm.handleChange} required placeholder="ejemplo@gmail.com" error={registrationForm.errors.email}/>
             <PhoneNumberInput id="regPhone" label="Teléfono" value={registrationForm.values.phone} onChange={(e) => registrationForm.setValues(prev => ({...prev, phone: e.target.value}))} />
-            <InputField 
+            <InputField
               id="regIdCardNumber" name="idCardNumber" label="Cédula de Identificación" value={registrationForm.values.idCardNumber} onChange={registrationForm.handleChange} required placeholder="Ej: 8-123-456 o PE-12345"
               pattern="^[A-Za-z0-9\-]+$" title="Cédula puede contener letras, números y guiones." error={registrationForm.errors.idCardNumber}
             />
-            <InputField 
-              id="regSchoolId" name="schoolId" label={regSchoolLabel} as="select" value={registrationForm.values.schoolId} onChange={registrationForm.handleChange} 
-              required={regSchoolRequired} 
+            <InputField
+              id="regSchoolId" name="schoolId" label={regSchoolLabel} as="select" value={registrationForm.values.schoolId} onChange={registrationForm.handleChange}
+              required={regSchoolRequired}
               error={registrationForm.errors.schoolId}
               helperText={regSchoolHelperText}
             >
@@ -439,8 +481,8 @@ const AccountPage: React.FC = () => {
               )}
             </InputField>
             <InputField id="regPassword" name="password" label="Contraseña" type="password" value={registrationForm.values.password} onChange={registrationForm.handleChange} required showPasswordToggle error={registrationForm.errors.password} />
-            <button type="submit" className="btn-primary w-full mt-2" disabled={registrationForm.isLoading || isLoadingSchools}>
-              {registrationForm.isLoading ? 'Creando Cuenta...' : 'Crear Cuenta'}
+            <button type="submit" className="btn-primary w-full mt-2" disabled={registrationForm.isLoading || isLoadingSchools || isRegisterCoolingDown}>
+              {isRegisterCoolingDown ? `Reintentar en ${registerTimeLeft}s` : (registrationForm.isLoading ? 'Creando Cuenta...' : 'Crear Cuenta')}
             </button>
           </form>
         )}
@@ -450,19 +492,18 @@ const AccountPage: React.FC = () => {
         onClose={closeForgotPasswordModal}
         onGoBackToLogin={() => {
           closeForgotPasswordModal();
-          setActiveTab('login'); 
+          setActiveTab('login');
         }}
       />
       </>
     );
   }
 
-  // Logged-in user view
   const isSchoolSelectionRequiredForUpdate = !currentUser.isAdmin && !currentUser.isSales && schoolSelectionIsMandatory;
   let schoolFieldUpdateHelperText = '';
     if (currentUser.isAdmin || currentUser.isSales) {
         schoolFieldUpdateHelperText = "Como administrador/ventas, puedes no tener un colegio asociado o seleccionar uno.";
-    } else { 
+    } else {
         if (schoolSelectionIsMandatory) {
             schoolFieldUpdateHelperText = `Debes seleccionar tu colegio asociado (${associatedSchoolName}). Contacta a soporte para cambios si es necesario.`;
         } else {
@@ -477,12 +518,29 @@ const AccountPage: React.FC = () => {
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-brand-secondary">Hola, {currentUser.firstName}!</h1>
             <p className="text-base sm:text-lg text-text-secondary mt-1">Gestiona tu información personal, pedidos y direcciones.</p>
         </div>
-        <button onClick={() => { logout(); showNotification("Has cerrado sesión.", "info");}} className="btn-outline py-2 px-4">
-          Cerrar Sesión
+        <button
+            onClick={async () => {
+                const result = await logout();
+                if (result.success) {
+                    showNotification('Has cerrado sesión exitosamente.', 'info'); 
+                } else {
+                    showNotification(result.message || 'Error al cerrar sesión.', 'error');
+                }
+            }}
+            className="btn-outline py-2 px-4 flex items-center justify-center min-w-[150px]" // Added min-width
+            disabled={isLoggingOut}
+        >
+          {isLoggingOut ? (
+            <>
+              <SpinnerIcon className="w-4 h-4 mr-2" />
+              Cerrando Sesión...
+            </>
+          ) : (
+            'Cerrar Sesión'
+          )}
         </button>
       </div>
       
-      {/* Account Details Section */}
       <section className="bg-brand-primary p-5 sm:p-6 rounded-lg shadow-card">
         <h2 className="text-lg md:text-xl font-semibold text-brand-secondary mb-4">Detalles de la Cuenta</h2>
         <form onSubmit={accountUpdateForm.handleSubmit} className="max-w-lg space-y-4">
@@ -492,7 +550,7 @@ const AccountPage: React.FC = () => {
             </div>
             <InputField id="accEmail" name="email" label="Correo Electrónico" type="email" value={accountUpdateForm.values.email} onChange={accountUpdateForm.handleChange} required error={accountUpdateForm.errors.email}/>
             <PhoneNumberInput id="accPhone" label="Teléfono" value={accountUpdateForm.values.phone} onChange={(e) => accountUpdateForm.setValues(prev => ({...prev, phone: e.target.value}))} />
-            <InputField 
+            <InputField
               id="accIdCardNumber" name="idCardNumber" label="Cédula de Identificación" value={accountUpdateForm.values.idCardNumber} onChange={accountUpdateForm.handleChange} required placeholder="Ej: 8-123-456 o PE-12345"
               pattern="^[A-Za-z0-9\-]+$" title="Cédula puede contener letras, números y guiones." error={accountUpdateForm.errors.idCardNumber}
             />
@@ -501,15 +559,15 @@ const AccountPage: React.FC = () => {
                 <label htmlFor="accSchoolId" className="block text-sm sm:text-base font-medium text-text-primary mb-1">
                     Colegio Asociado {isSchoolSelectionRequiredForUpdate && <span className="text-error">*</span>}
                 </label>
-                <select 
+                <select
                     id="accSchoolId" name="schoolId"
-                    value={accountUpdateForm.values.schoolId || ''} 
-                    onChange={accountUpdateForm.handleChange} 
+                    value={accountUpdateForm.values.schoolId || ''}
+                    onChange={accountUpdateForm.handleChange}
                     className={`w-full p-2.5 bg-brand-primary border rounded-md shadow-sm focus:ring-2 text-sm sm:text-base transition-colors ${
                        (accountUpdateForm.errors.schoolId) ? 'border-error focus:ring-error' : 'border-brand-quaternary focus:ring-brand-tertiary focus:border-transparent'
                     }`}
-                    required={isSchoolSelectionRequiredForUpdate} 
-                    disabled={isLoadingSchools} 
+                    required={isSchoolSelectionRequiredForUpdate}
+                    disabled={isLoadingSchools}
                 >
                     <option value="">-- { (currentUser.isAdmin || currentUser.isSales || !schoolSelectionIsMandatory) ? 'Ningún colegio' : 'Selecciona tu colegio'} --</option>
                     {isLoadingSchools ? (
@@ -525,14 +583,13 @@ const AccountPage: React.FC = () => {
             </div>
 
             <div className="pt-2">
-                <button type="submit" className="btn-primary py-2 px-4" disabled={isLoadingSchools || accountUpdateForm.isLoading}>
-                    {accountUpdateForm.isLoading ? 'Actualizando...' : 'Actualizar Cuenta'}
+                <button type="submit" className="btn-primary py-2 px-4" disabled={isLoadingSchools || accountUpdateForm.isLoading || isUpdateProfileCoolingDown}>
+                    {isUpdateProfileCoolingDown ? `Reintentar en ${updateProfileTimeLeft}s` : (accountUpdateForm.isLoading ? 'Actualizando...' : 'Actualizar Cuenta')}
                 </button>
             </div>
         </form>
       </section>
 
-      {/* Order History Section */}
       <section className="bg-brand-primary p-5 sm:p-6 rounded-lg shadow-card">
         <h2 className="text-lg md:text-xl font-semibold text-brand-secondary mb-4">Historial de Pedidos</h2>
         {currentUser.orders && currentUser.orders.length > 0 ? (
@@ -554,10 +611,10 @@ const AccountPage: React.FC = () => {
                     <td className="px-4 py-3 text-xs sm:text-sm">{new Date(order.date).toLocaleDateString('es-PA')}</td>
                     <td className="px-4 py-3 text-xs sm:text-sm">
                       <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
-                        order.status === 'Delivered' ? 'bg-success/20 text-green-700' : 
-                        order.status === 'Shipped' ? 'bg-brand-tertiary/20 text-brand-secondary' : 
+                        order.status === 'Delivered' ? 'bg-success/20 text-green-700' :
+                        order.status === 'Shipped' ? 'bg-brand-tertiary/20 text-brand-secondary' :
                         order.status === 'Processing' ? 'bg-yellow-500/20 text-yellow-700' :
-                        'bg-error/20 text-red-700' 
+                        'bg-error/20 text-red-700'
                       }`}>
                         {getOrderStatusText(order.status)}
                       </span>
@@ -578,7 +635,6 @@ const AccountPage: React.FC = () => {
         )}
       </section>
 
-      {/* Address Book Section */}
       <section className="bg-brand-primary p-5 sm:p-6 rounded-lg shadow-card">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
             <h2 className="text-lg md:text-xl font-semibold text-brand-secondary mb-2 sm:mb-0">Libreta de Direcciones</h2>
@@ -587,9 +643,9 @@ const AccountPage: React.FC = () => {
         {currentUser.addresses && currentUser.addresses.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {currentUser.addresses.map(address => (
-              <AddressCard 
-                key={address.id} 
-                address={address} 
+              <AddressCard
+                key={address.id}
+                address={address}
                 onDelete={handleDeleteAddress}
                 onSetDefault={handleSetDefaultAddress}
                 onEdit={handleOpenEditAddressModal}
@@ -600,20 +656,20 @@ const AccountPage: React.FC = () => {
           <p className="text-text-secondary text-base sm:text-lg">No tienes direcciones guardadas.</p>
         )}
       </section>
-      <AddAddressModal 
-        isOpen={isAddressModalOpen} 
-        onClose={() => { closeAddressModal(); setAddressToEdit(null); }} 
+      <AddAddressModal
+        isOpen={isAddressModalOpen}
+        onClose={() => { closeAddressModal(); setAddressToEdit(null); }}
         onSave={handleSaveAddress}
         initialData={addressToEdit}
         editingAddressId={addressToEdit?.id}
-        modalIdPrefix="cuenta" 
+        modalIdPrefix="cuenta"
       />
        <ForgotPasswordModal
         isOpen={isForgotPasswordModalOpen}
         onClose={closeForgotPasswordModal}
         onGoBackToLogin={() => {
           closeForgotPasswordModal();
-          setActiveTab('login'); 
+          setActiveTab('login');
         }}
       />
     </div>

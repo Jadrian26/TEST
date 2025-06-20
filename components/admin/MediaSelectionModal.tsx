@@ -7,7 +7,8 @@ import MediaIcon from './icons/MediaIcon';
 import UploadIcon from './icons/UploadIcon'; 
 import useFileUpload from '../../hooks/useFileUpload'; 
 import { useNotifications } from '../../contexts/NotificationsContext';
-import { useSearchAndFilter } from '../../hooks/useSearchAndFilter'; // Added
+import { useSearchAndFilter } from '../../hooks/useSearchAndFilter'; 
+import useDebounce from '../../hooks/useDebounce'; // Import useDebounce
 
 interface MediaSelectionModalProps {
   isOpen: boolean;
@@ -31,11 +32,18 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                      .sort((a,b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
   }, [mediaItems]);
 
+  const [localSearchTerm, setLocalSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(localSearchTerm, 300);
+
   const {
     processedData: filteredMediaItems,
-    searchTerm,
+    // searchTerm, // Not used directly for input value anymore
     setSearchTerm
   } = useSearchAndFilter<MediaItem>(imageMediaItems, { searchKeys: ['name'] });
+
+  useEffect(() => {
+    setSearchTerm(debouncedSearchTerm);
+  }, [debouncedSearchTerm, setSearchTerm]);
 
 
   const {
@@ -62,12 +70,12 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setIsVisible(true);
-      setSearchTerm(''); 
+      setLocalSearchTerm(''); // Clear local search term on open
       clearUploadFeedback();
     } else {
       setIsVisible(false);
     }
-  }, [isOpen, clearUploadFeedback, setSearchTerm]);
+  }, [isOpen, clearUploadFeedback]);
 
   const handleCloseModal = () => {
     setIsVisible(false);
@@ -120,8 +128,8 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           <input
             type="text"
             placeholder="Buscar imagen por nombre..."
-            value={searchTerm}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+            value={localSearchTerm}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setLocalSearchTerm(e.target.value)}
             className="flex-grow w-full sm:w-auto p-2.5 bg-brand-primary border border-brand-quaternary rounded-md shadow-sm focus:ring-2 focus:ring-brand-tertiary focus:border-transparent text-sm sm:text-base"
             aria-label="Buscar en biblioteca de medios"
           />

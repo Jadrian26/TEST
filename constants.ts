@@ -3,9 +3,7 @@ import { School, Product } from './types';
 
 export const APP_NAME = "Uniformes y Bordados Escolares"; // Ya estaba en español
 
-export const MOCK_SCHOOLS: School[] = []; 
-
-export const MOCK_PRODUCTS: Product[] = []; 
+// MOCK_SCHOOLS and MOCK_PRODUCTS removed as they were empty and unused.
 
 export const NAV_LINKS_PRIMARY = [
   { name: 'Inicio', path: '/' },
@@ -13,10 +11,7 @@ export const NAV_LINKS_PRIMARY = [
 ];
 
 export const FOOTER_LINKS_DATA = {
-  quickLinks: [ // Esta sección fue eliminada del Footer, pero traduzco por si se reutiliza
-    { name: 'Uniformes', path: '/catalog' }, 
-    { name: 'Guía de Tallas', path: '/size-guide' }, 
-  ],
+  // quickLinks section removed as it was unused in the Footer.
   customerService: [
     { name: 'Contáctanos', path: '/contact' },
     { name: 'Envíos y Devoluciones', path: '/shipping-returns' },

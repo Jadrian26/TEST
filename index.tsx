@@ -1,4 +1,3 @@
-
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
@@ -6,7 +5,7 @@ import { CartProvider } from './contexts/CartContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { EditableContentProvider } from './contexts/EditableContentContext';
 import { MediaProvider } from './contexts/MediaContext';
-import { NotificationsProvider } from './contexts/NotificationsContext'; // Added NotificationsProvider
+import { NotificationsProvider } from './contexts/NotificationsContext';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -17,15 +16,15 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <AuthProvider>
-      <EditableContentProvider>
-        <MediaProvider>
-          <CartProvider>
-            <NotificationsProvider> {/* Added NotificationsProvider */}
+      <NotificationsProvider>
+        <EditableContentProvider>
+          <MediaProvider>
+            <CartProvider>
               <App />
-            </NotificationsProvider>
-          </CartProvider>
-        </MediaProvider>
-      </EditableContentProvider>
+            </CartProvider>
+          </MediaProvider>
+        </EditableContentProvider>
+      </NotificationsProvider>
     </AuthProvider>
   </React.StrictMode>
 );

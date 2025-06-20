@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, FormEvent, ChangeEvent } from 'react';
+import React, { useState, useEffect, FormEvent, ChangeEvent, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
@@ -7,6 +6,7 @@ import { Address, DeliveryMethod } from '../types';
 import AddAddressModal from '../components/AddAddressModal'; 
 import useAuthRedirect from '../hooks/useAuthRedirect';
 import { useNotifications } from '../contexts/NotificationsContext'; 
+import SpinnerIcon from '../components/icons/SpinnerIcon'; // Import SpinnerIcon
 
 interface InputFieldProps {
     id: string;
@@ -100,6 +100,7 @@ const CheckoutPage: React.FC = () => {
   const [customerNameForOrder, setCustomerNameForOrder] = useState('');
   const [customerIdCardForOrder, setCustomerIdCardForOrder] = useState('');
   const [formErrors, setFormErrors] = useState<{ name?: string, idCard?: string, address?: string }>({});
+  const [isProcessingOrder, setIsProcessingOrder] = useState(false); // New state for order processing
 
   const shippingCost = deliveryMethod === 'delivery' && itemCount > 0 ? 5.00 : 0.00;
   const grandTotal = totalAmount + shippingCost;
@@ -115,7 +116,7 @@ const CheckoutPage: React.FC = () => {
     }
   }, [currentUser]);
 
-  const validateForm = (): boolean => {
+  const validateForm = useCallback((): boolean => {
     const errors: { name?: string, idCard?: string, address?: string } = {};
     if ((currentUser?.isAdmin || currentUser?.isSales) && !customerNameForOrder.trim()) {
         errors.name = "El nombre del cliente es obligatorio.";
@@ -128,9 +129,9 @@ const CheckoutPage: React.FC = () => {
     }
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
-  };
+  }, [currentUser, customerNameForOrder, customerIdCardForOrder, deliveryMethod, selectedAddressId]);
 
-  const handlePlaceOrder = async (e: FormEvent) => {
+  const handlePlaceOrder = useCallback(async (e: FormEvent) => {
     e.preventDefault();
     if (!currentUser || cartItems.length === 0) return;
     if (!validateForm()) {
@@ -138,11 +139,13 @@ const CheckoutPage: React.FC = () => {
         return;
     }
 
+    setIsProcessingOrder(true); 
     let finalAddress: Address | null = null;
     if (deliveryMethod === 'delivery') {
         finalAddress = currentUser.addresses.find(addr => addr.id === selectedAddressId) || null;
         if (!finalAddress) {
             showNotification("Dirección de envío no válida.", "error");
+            setIsProcessingOrder(false); 
             return;
         }
     }
@@ -150,31 +153,34 @@ const CheckoutPage: React.FC = () => {
     const customerDetailsForOrder = (currentUser.isAdmin || currentUser.isSales) 
         ? { name: customerNameForOrder, idCard: customerIdCardForOrder } 
         : undefined;
+    
+    try {
+      const result = await createOrder(cartItems, finalAddress, deliveryMethod, customerDetailsForOrder);
 
-    const result = await createOrder(cartItems, finalAddress, deliveryMethod, customerDetailsForOrder);
-
-    if (result.success && result.orderId) {
-      clearCart();
-      showNotification(result.message || 'Pedido realizado con éxito.', 'success');
-      navigate('/order-confirmation', { state: { orderId: result.orderId, deliveryMethod: deliveryMethod } });
-    } else {
-      showNotification(result.message || 'Error al procesar el pedido.', 'error');
+      if (result.success && result.orderId) {
+        clearCart();
+        showNotification(result.message || 'Pedido realizado con éxito.', 'success');
+        navigate('/order-confirmation', { state: { orderId: result.orderId, deliveryMethod: deliveryMethod } });
+      } else {
+        showNotification(result.message || 'Error al procesar el pedido.', 'error');
+      }
+    } catch (error) {
+      console.error("CheckoutPage: Error during createOrder:", error);
+      showNotification('Error inesperado al procesar el pedido.', 'error');
+    } finally {
+      setIsProcessingOrder(false); 
     }
-  };
+  }, [currentUser, cartItems, createOrder, clearCart, showNotification, navigate, deliveryMethod, selectedAddressId, customerNameForOrder, customerIdCardForOrder, validateForm]);
   
   const handleAddNewAddress = () => {
     setIsAddressModalOpen(true);
   };
   
-  // This function would be called from AddAddressModal on successful save
-  // For simplicity, assuming AuthContext handles refreshing currentUser.addresses
   const onAddressSaved = () => { 
     setIsAddressModalOpen(false);
-    // Optionally, re-select the new/edited address if logic permits
-    // For now, rely on useEffect or manual selection
   };
 
-  if (!currentUser) return <div className="text-center py-20">Cargando...</div>; // Should be redirected by useAuthRedirect
+  if (!currentUser) return <div className="text-center py-20">Cargando...</div>;
 
   return (
     <>
@@ -184,7 +190,6 @@ const CheckoutPage: React.FC = () => {
         <form onSubmit={handlePlaceOrder} className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
           <div className="lg:col-span-2 bg-brand-primary p-6 rounded-lg shadow-card space-y-6">
             
-            {/* Admin/Sales specific fields for customer info */}
             {(currentUser.isAdmin || currentUser.isSales) && (
                  <div className="border-b border-brand-gray-light pb-6">
                     <h2 className="text-lg sm:text-xl font-semibold text-text-primary mb-3">Información del Cliente (Para Pedido)</h2>
@@ -289,8 +294,19 @@ const CheckoutPage: React.FC = () => {
               <span className="text-text-primary">Total a Pagar:</span>
               <span className="text-brand-secondary">${grandTotal.toFixed(2)}</span>
             </div>
-            <button type="submit" className="btn-secondary w-full text-base" disabled={cartItems.length === 0}>
-              Realizar Pedido
+            <button 
+              type="submit" 
+              className="btn-secondary w-full text-base flex items-center justify-center min-h-[44px]" // Added min-h for consistent height
+              disabled={cartItems.length === 0 || isProcessingOrder}
+            >
+              {isProcessingOrder ? (
+                <>
+                  <SpinnerIcon className="w-5 h-5 mr-2" />
+                  Procesando Pedido...
+                </>
+              ) : (
+                'Realizar Pedido'
+              )}
             </button>
             <Link to="/cart" className="block text-center mt-3 text-sm text-brand-tertiary hover:underline">
               Volver al Carrito

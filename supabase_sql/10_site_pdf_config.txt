@@ -27,4 +27,4 @@ EXECUTE FUNCTION public.trigger_set_timestamp();
 CREATE INDEX IF NOT EXISTS idx_pdf_config_logo_id ON public.pdf_config (logo_id);
 
 -- Manually run this AFTER table creation to insert the single configuration row:
--- INSERT INTO public.pdf_config (id) VALUES (true) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.pdf_config (id) VALUES (true) ON CONFLICT (id) DO NOTHING;

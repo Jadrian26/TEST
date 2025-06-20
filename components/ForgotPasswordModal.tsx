@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import useFormHandler from '../hooks/useFormHandler';
 import { useNotifications } from '../contexts/NotificationsContext';
 import CloseIcon from './icons/CloseIcon';
+import useButtonCooldown from '../hooks/useButtonCooldown'; // Importar el nuevo hook
 
 interface ForgotPasswordModalProps {
   isOpen: boolean;
@@ -44,6 +45,27 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
   const { showNotification } = useNotifications();
   const [isVisible, setIsVisible] = useState(false);
 
+  const handleSendResetEmailAction = async (email: string) => {
+    const result = await sendPasswordResetEmail(email);
+    showNotification(result.message, result.success ? 'success' : 'error');
+    if (result.success) {
+      form.setValues({ email: '' }); // Clear email field on success
+    }
+    return result; // Devuelve el resultado para que el hook pueda saber si la acción fue exitosa
+  };
+  
+  const { 
+    trigger: triggerSendResetEmail, 
+    isCoolingDown, 
+    timeLeft 
+  } = useButtonCooldown(
+    async (values: { email: string }) => { // La acción ahora recibe los valores del formulario
+        await handleSendResetEmailAction(values.email);
+    }, 
+    30000 // 30 segundos de cooldown
+  );
+
+
   const form = useFormHandler({
     initialValues: { email: '' },
     onSubmit: async (values) => {
@@ -51,13 +73,7 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
         form.setFieldError('email', 'El correo electrónico es obligatorio.');
         return;
       }
-      // The sendPasswordResetEmail function in AuthContext will handle the generic message.
-      const result = await sendPasswordResetEmail(values.email);
-      showNotification(result.message, result.success ? 'success' : 'error');
-      if (result.success) {
-        form.setValues({ email: '' }); // Clear email field on success
-         // Optionally close modal after a delay or keep it open with the message
-      }
+      await triggerSendResetEmail(values); // Llama a la función trigger del hook
     },
     validate: (values) => {
       const errors: { email?: string } = {};
@@ -122,7 +138,7 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
         </div>
 
         <p className="text-sm text-text-secondary mb-5">
-          Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña (simulado).
+          Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.
         </p>
 
         <form onSubmit={form.handleSubmit}>
@@ -138,8 +154,14 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen, onClo
             error={form.errors.email}
           />
           {form.formError && <p className="text-sm text-error mt-2 mb-3 text-center">{form.formError}</p>}
-          <button type="submit" className="btn-primary w-full mt-3" disabled={form.isLoading}>
-            {form.isLoading ? 'Enviando...' : 'Enviar Enlace de Recuperación'}
+          <button 
+            type="submit" 
+            className="btn-primary w-full mt-3" 
+            disabled={form.isLoading || isCoolingDown}
+          >
+            {isCoolingDown 
+              ? `Reintentar en ${timeLeft}s` 
+              : (form.isLoading ? 'Enviando...' : 'Enviar Enlace de Recuperación')}
           </button>
         </form>
 

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, FormEvent } from 'react';
 import { useEditableContent } from '../../contexts/EditableContentContext';
 import { useMedia } from '../../contexts/MediaContext';
@@ -9,7 +8,8 @@ import StoreIconUyB from '../icons/StoreIconUyB';
 import DeliveryIconUyB from '../icons/DeliveryIconUyB'; 
 import CustomerServiceIconUyB from '../icons/CustomerServiceIconUyB'; 
 import useModalState from '../../hooks/useModalState'; 
-import { useNotifications } from '../../contexts/NotificationsContext'; // Added
+import { useNotifications } from '../../contexts/NotificationsContext'; 
+import useButtonCooldown from '../../hooks/useButtonCooldown'; // Importar hook
 
 interface EditValuePropositionCardsModalProps {
   isOpen: boolean;
@@ -20,7 +20,6 @@ const fallbackIcons: { [key: string]: React.FC<{ className?: string }> } = {
   storeUyB: StoreIconUyB,
   deliveryUyB: DeliveryIconUyB,
   customerServiceUyB: CustomerServiceIconUyB,
-  // Keep general ones as true fallbacks if defaultIconName might not match new specific ones
   store: StoreIconUyB,
   delivery: DeliveryIconUyB,
   customerService: CustomerServiceIconUyB,
@@ -30,13 +29,37 @@ const fallbackIcons: { [key: string]: React.FC<{ className?: string }> } = {
 const EditValuePropositionCardsModal: React.FC<EditValuePropositionCardsModalProps> = ({ isOpen, onClose }) => {
   const { valuePropositionCardsData, updateValuePropositionCardsData: updateCardsContext } = useEditableContent();
   const { mediaItems } = useMedia();
-  const { showNotification } = useNotifications(); // Added
+  const { showNotification } = useNotifications(); 
 
   const [cardsToEdit, setCardsToEdit] = useState<ValuePropositionCardData[]>([]);
   const { isOpen: isMediaModalOpen, openModal: openMediaModal, closeModal: closeMediaModal } = useModalState();
   const [currentCardIndexForIconChange, setCurrentCardIndexForIconChange] = useState<number | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const saveCardsAction = async () => {
+    for (const card of cardsToEdit) {
+        if (!card.title.trim() || !card.subtitle.trim()) {
+            showNotification(`Todos los campos de título y subtítulo son obligatorios para la tarjeta "${card.defaultIconName}".`, 'error');
+            return; // Importante para no proceder si hay error
+        }
+    }
+    const dataToSave = cardsToEdit.map(({ id, ...rest }) => ({ ...rest })) as Array<Omit<ValuePropositionCardData, 'id' | 'created_at' | 'updated_at'>>;
+    const result = await updateCardsContext(dataToSave);
+    if (result.success) {
+      showNotification("Tarjetas de propuesta de valor actualizadas.", 'success');
+      handleCloseModal();
+    } else {
+      showNotification(result.message || "Error al actualizar las tarjetas.", 'error');
+    }
+  };
+
+  const { 
+    trigger: triggerSaveChanges, 
+    isCoolingDown, 
+    timeLeft 
+  } = useButtonCooldown(saveCardsAction, 2000);
+
 
   useEffect(() => {
     if (isOpen) {
@@ -83,31 +106,7 @@ const EditValuePropositionCardsModal: React.FC<EditValuePropositionCardsModalPro
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setFormError(null);
-    for (const card of cardsToEdit) {
-        if (!card.title.trim() || !card.subtitle.trim()) {
-            showNotification(`Todos los campos de título y subtítulo son obligatorios para la tarjeta "${card.defaultIconName}".`, 'error');
-            return;
-        }
-    }
-    try {
-      // Prepare data for context, removing client-side 'id' if it's temporary
-      const dataToSave = cardsToEdit.map(({ id, ...rest }) => ({
-        ...rest,
-        // If 'id' was a placeholder, don't send it. If it's a real DB UUID, send it for potential updates (though current context logic deletes all and re-inserts).
-        // For simplicity, let's assume context's update function handles this correctly.
-      })) as Array<Omit<ValuePropositionCardData, 'id' | 'created_at' | 'updated_at'>>;
-
-      const result = await updateCardsContext(dataToSave);
-      if (result.success) {
-        showNotification("Tarjetas de propuesta de valor actualizadas.", 'success');
-        handleCloseModal();
-      } else {
-        showNotification(result.message || "Error al actualizar las tarjetas.", 'error');
-      }
-    } catch (error) {
-      showNotification("Error al actualizar las tarjetas.", 'error');
-      console.error("Error saving value proposition cards:", error);
-    }
+    await triggerSaveChanges();
   };
 
   if (!isOpen && !isVisible) return null;
@@ -136,7 +135,7 @@ const EditValuePropositionCardsModal: React.FC<EditValuePropositionCardsModalPro
 
           <form onSubmit={handleSubmit} className="flex-grow overflow-y-auto pr-1 space-y-6">
             {cardsToEdit.map((card, index) => {
-              const FallbackIcon = fallbackIcons[card.defaultIconName] || fallbackIcons.customerService; // Default to a generic one if specific not found
+              const FallbackIcon = fallbackIcons[card.defaultIconName] || fallbackIcons.customerService; 
               let iconPreviewElement: JSX.Element;
               const selectedMediaItem = card.iconId ? mediaItems.find(m => m.id === card.iconId) : null;
 
@@ -206,11 +205,17 @@ const EditValuePropositionCardsModal: React.FC<EditValuePropositionCardsModalPro
           </form>
 
           <div className="mt-auto pt-6 border-t border-brand-gray-light flex justify-end space-x-3">
-            <button type="button" onClick={handleCloseModal} className="btn-ghost">
+            <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={isCoolingDown}>
               Cancelar
             </button>
-            <button type="submit" form="value-prop-cards-form" onClick={handleSubmit} className="btn-primary">
-              Guardar Cambios
+            <button 
+              type="submit" 
+              form="value-prop-cards-form" 
+              onClick={handleSubmit} 
+              className="btn-primary"
+              disabled={isCoolingDown}
+            >
+              {isCoolingDown ? `Guardando... (${timeLeft}s)` : 'Guardar Cambios'}
             </button>
           </div>
         </div>

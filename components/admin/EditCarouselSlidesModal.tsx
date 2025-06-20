@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useEditableContent } from '../../contexts/EditableContentContext';
 import { useMedia } from '../../contexts/MediaContext';
@@ -8,7 +7,8 @@ import TrashIcon from '../icons/TrashIcon';
 import MediaSelectionModal from './MediaSelectionModal';
 import MediaIcon from './icons/MediaIcon'; 
 import useModalState from '../../hooks/useModalState'; 
-import { useNotifications } from '../../contexts/NotificationsContext'; // Added
+import { useNotifications } from '../../contexts/NotificationsContext'; 
+import useButtonCooldown from '../../hooks/useButtonCooldown'; // Importar hook
 
 interface EditCarouselSlidesModalProps {
   isOpen: boolean;
@@ -23,16 +23,29 @@ const EditCarouselSlidesModal: React.FC<EditCarouselSlidesModalProps> = ({ isOpe
     updateHeroCarouselInterval 
   } = useEditableContent();
   const { mediaItems: allMediaFromLibrary } = useMedia();
-  const { showNotification } = useNotifications(); // Added
+  const { showNotification } = useNotifications(); 
 
   const [selectedSlidesForEditing, setSelectedSlidesForEditing] = useState<MediaItem[]>([]);
   const [currentInterval, setCurrentInterval] = useState<number>(heroCarouselInterval);
   const { isOpen: isMediaSelectionModalOpen, openModal: openMediaSelectionModal, closeModal: closeMediaSelectionModal } = useModalState();
   const [isVisible, setIsVisible] = useState(false);
 
+  const saveChangesAction = async () => {
+    await updateHeroSlidesContext(selectedSlidesForEditing.map(slide => slide.id));
+    await updateHeroCarouselInterval(currentInterval);
+    showNotification("Carrusel principal actualizado.", 'success');
+    handleCloseModal();
+  };
+
+  const { 
+    trigger: triggerSaveChanges, 
+    isCoolingDown, 
+    timeLeft 
+  } = useButtonCooldown(saveChangesAction, 2000);
+
+
   useEffect(() => {
     if (isOpen) {
-      // Ensure heroSlides are valid MediaItems present in allMediaFromLibrary
       const validCurrentSlides = heroSlides.filter(slide => 
         allMediaFromLibrary.some(libItem => libItem.id === slide.id)
       );
@@ -62,19 +75,6 @@ const EditCarouselSlidesModal: React.FC<EditCarouselSlidesModalProps> = ({ isOpe
 
   const handleRemoveSlide = (slideIdToRemove: string) => {
     setSelectedSlidesForEditing(prevSlides => prevSlides.filter(slide => slide.id !== slideIdToRemove));
-  };
-
-  const handleSaveChanges = async () => {
-    try {
-      // Pass array of MediaItem IDs to updateHeroSlides
-      await updateHeroSlidesContext(selectedSlidesForEditing.map(slide => slide.id));
-      await updateHeroCarouselInterval(currentInterval);
-      showNotification("Carrusel principal actualizado.", 'success');
-      handleCloseModal();
-    } catch (error) {
-      showNotification("Error al actualizar el carrusel.", 'error');
-      console.error("Error saving carousel slides:", error);
-    }
   };
   
   const moveSlide = (index: number, direction: 'up' | 'down') => {
@@ -182,11 +182,16 @@ const EditCarouselSlidesModal: React.FC<EditCarouselSlidesModalProps> = ({ isOpe
           </div>
 
           <div className="mt-auto pt-4 border-t border-brand-gray-light flex justify-end space-x-3">
-            <button type="button" onClick={handleCloseModal} className="btn-ghost">
+            <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={isCoolingDown}>
               Cancelar
             </button>
-            <button type="button" onClick={handleSaveChanges} className="btn-primary">
-              Guardar Cambios
+            <button 
+              type="button" 
+              onClick={triggerSaveChanges} 
+              className="btn-primary"
+              disabled={isCoolingDown}
+            >
+              {isCoolingDown ? `Guardando... (${timeLeft}s)` : 'Guardar Cambios'}
             </button>
           </div>
         </div>

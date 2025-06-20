@@ -1,25 +1,33 @@
 
-import React, { ChangeEvent } from 'react'; 
+import React, { ChangeEvent, useState, useEffect } from 'react'; 
 import { useAuth } from '../../contexts/AuthContext';
 import { useEditableContent } from '../../contexts/EditableContentContext'; 
 import { UserProfile, School } from '../../types'; 
 import { useSearchAndFilter } from '../../hooks/useSearchAndFilter'; 
-import { useNotifications } from '../../contexts/NotificationsContext'; // Added
+import { useNotifications } from '../../contexts/NotificationsContext'; 
+import useDebounce from '../../hooks/useDebounce'; // Import useDebounce
 
 const AdminManageUsersPage: React.FC = () => {
-  const { currentUser, allUsers, updateUserProfileByAdmin } = useAuth(); // Changed registeredUsers to allUsers
+  const { currentUser, allUsers, updateUserProfileByAdmin } = useAuth(); 
   const { schools, isLoading: isLoadingSchools } = useEditableContent(); 
-  const { showNotification } = useNotifications(); // Added
+  const { showNotification } = useNotifications(); 
+
+  const [localSearchTerm, setLocalSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(localSearchTerm, 300);
 
   const {
     processedData: filteredUsers,
-    searchTerm,
-    setSearchTerm,
+    // searchTerm, // Not used directly for input value anymore
+    setSearchTerm, // Used with debounced value
     filters,
     setFilter
-  } = useSearchAndFilter<UserProfile>(allUsers, { // Changed registeredUsers to allUsers
+  } = useSearchAndFilter<UserProfile>(allUsers, { 
     searchKeys: ['firstName', 'lastName', 'email', 'idCardNumber']
   });
+
+  useEffect(() => {
+    setSearchTerm(debouncedSearchTerm);
+  }, [debouncedSearchTerm, setSearchTerm]);
 
   const getSchoolName = (schoolId: string | null): string => {
     if (isLoadingSchools || !schoolId) return 'No asignado';
@@ -33,7 +41,7 @@ const AdminManageUsersPage: React.FC = () => {
       return;
     }
     
-    const targetUser = allUsers.find(u => u.id === userId); // Changed registeredUsers to allUsers
+    const targetUser = allUsers.find(u => u.id === userId); 
     if (!targetUser) {
       showNotification("Usuario no encontrado.", "error");
       return;
@@ -85,8 +93,8 @@ const AdminManageUsersPage: React.FC = () => {
               type="text"
               id="userSearch"
               placeholder="Escribe para buscar..."
-              value={searchTerm}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+              value={localSearchTerm}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setLocalSearchTerm(e.target.value)}
               className="w-full text-sm"
             />
           </div>
@@ -122,10 +130,10 @@ const AdminManageUsersPage: React.FC = () => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 016-6h6a6 6 0 016 6v1h-3M15 21H9" />
           </svg>
           <h3 className="mt-2 text-base sm:text-lg font-medium text-text-primary">
-            {allUsers.length === 0 ? "No hay usuarios registrados." : "No se encontraron usuarios."} {/* Changed registeredUsers to allUsers */}
+            {allUsers.length === 0 ? "No hay usuarios registrados." : "No se encontraron usuarios."} 
           </h3>
           <p className="mt-1 text-sm text-text-secondary">
-            {allUsers.length > 0 ? "Intenta ajustar tu búsqueda o filtros." : "Cuando los usuarios se registren, aparecerán aquí."} {/* Changed registeredUsers to allUsers */}
+            {allUsers.length > 0 ? "Intenta ajustar tu búsqueda o filtros." : "Cuando los usuarios se registren, aparecerán aquí."} 
           </p>
         </div>
       ) : (

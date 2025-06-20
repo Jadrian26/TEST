@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, ChangeEvent, DragEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useEditableContent } from '../../contexts/EditableContentContext';
@@ -13,7 +12,8 @@ import DragHandleIcon from '../../components/admin/icons/DragHandleIcon';
 import useDraggableList from '../../hooks/useDraggableList'; 
 import useModalState from '../../hooks/useModalState'; 
 import { useNotifications } from '../../contexts/NotificationsContext';
-import { useSearchAndFilter } from '../../hooks/useSearchAndFilter'; // Added
+import { useSearchAndFilter } from '../../hooks/useSearchAndFilter'; 
+import useDebounce from '../../hooks/useDebounce'; // Import useDebounce
 
 const AdminSchoolProductsPage: React.FC = () => {
   const { schoolId } = useParams<{ schoolId: string }>();
@@ -40,7 +40,7 @@ const AdminSchoolProductsPage: React.FC = () => {
   }, [products, schoolId, isLoading]);
 
   const {
-    orderedItems: orderedLocalProducts,
+    orderedItems: orderedLocalProducts, // This is the state from the hook
     draggingIndex,
     dragOverIndex,
     handleDragStart,
@@ -48,9 +48,9 @@ const AdminSchoolProductsPage: React.FC = () => {
     handleDragLeave,
     handleDrop,
     handleDragEnd,
-    setOrderedItems: setOrderedLocalProducts 
+    // setOrderedItems is provided by the hook but we let the hook manage its internal state based on initialItems
   } = useDraggableList<Product>({
-    initialItems: initialSchoolProducts,
+    initialItems: initialSchoolProducts, // Pass the derived products here
     onOrderChange: (newOrderedList) => {
       if (schoolId) {
         try {
@@ -65,33 +65,32 @@ const AdminSchoolProductsPage: React.FC = () => {
     getItemId: (item) => item.id,
   });
 
+  const [localSearchTerm, setLocalSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(localSearchTerm, 300);
+
   const {
     processedData: filteredAndOrderedProducts,
-    searchTerm,
     setSearchTerm
   } = useSearchAndFilter<Product>(orderedLocalProducts, { searchKeys: ['name']});
+
+  useEffect(() => {
+    setSearchTerm(debouncedSearchTerm);
+  }, [debouncedSearchTerm, setSearchTerm]);
   
   useEffect(() => {
     if (!isLoading && schoolId) {
       const foundSchool = schools.find(s => s.id === schoolId);
       if (foundSchool) {
         setCurrentSchool(foundSchool);
-        const latestSchoolProducts = products
-          .filter(p => p.schoolId === schoolId)
-          .sort((a, b) => a.orderIndex - b.orderIndex);
-
-        const localProductIds = orderedLocalProducts.map(p => p.id).join(',');
-        const contextProductIds = latestSchoolProducts.map(p => p.id).join(',');
-
-        if (localProductIds !== contextProductIds || orderedLocalProducts.length !== latestSchoolProducts.length) {
-          setOrderedLocalProducts(latestSchoolProducts);
-        }
-
+        // The initialSchoolProducts memoized value is passed to useDraggableList,
+        // and useDraggableList's internal useEffect handles updating its orderedItems
+        // when initialSchoolProducts changes. So, direct setting here is not needed.
       } else {
         navigate('/admin/colegios');
       }
     }
-  }, [schoolId, schools, products, isLoading, navigate, setOrderedLocalProducts, orderedLocalProducts]);
+  }, [schoolId, schools, isLoading, navigate]);
+
 
   const handleOpenEditModal = (product: Product) => {
     setProductToEdit(product);
@@ -171,8 +170,8 @@ const AdminSchoolProductsPage: React.FC = () => {
           type="text"
           id="productSearch"
           placeholder="Escribe para buscar productos..."
-          value={searchTerm}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+          value={localSearchTerm}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setLocalSearchTerm(e.target.value)}
           className="w-full md:w-1/2 text-sm"
         />
       </div>

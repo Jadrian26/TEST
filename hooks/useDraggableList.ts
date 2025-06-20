@@ -1,3 +1,4 @@
+
 import { useState, useCallback, DragEvent, useEffect } from 'react';
 
 interface UseDraggableListOptions<T> {
@@ -21,78 +22,36 @@ interface UseDraggableListOutput<T> {
 function useDraggableList<T>({
   initialItems,
   onOrderChange,
-  getItemId,
+  getItemId, // getItemId is kept in case its stability is not guaranteed by the caller, though often it is.
 }: UseDraggableListOptions<T>): UseDraggableListOutput<T> {
   const [orderedItems, setOrderedItems] = useState<T[]>(initialItems);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   useEffect(() => {
-    // Sync with external changes to initialItems, preserving order if possible
-    // This is a simple sync; more complex scenarios might need deeper comparison
-    const initialItemMap = new Map(initialItems.map(item => [getItemId(item), item]));
-    const currentItemMap = new Map(orderedItems.map(item => [getItemId(item), item]));
-
-    // Check if item sets are different or if any item content changed significantly
-    // For simplicity, just checking if IDs match and length. A more robust check might be needed.
-    let needsUpdate = initialItems.length !== orderedItems.length;
-    if (!needsUpdate) {
-        for (const item of initialItems) {
-            if (!currentItemMap.has(getItemId(item))) { // New item added externally
-                needsUpdate = true;
-                break;
-            }
-        }
-        if (!needsUpdate) {
-             for (const item of orderedItems) {
-                if (!initialItemMap.has(getItemId(item))) { // Item removed externally
-                    needsUpdate = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    if (needsUpdate) {
-        // Basic re-initialization if structure drastically changes
-        // Or if an item that was part of the ordered list is no longer in initialItems
-        const newOrdered = initialItems.map(initItem => {
-            const existing = currentItemMap.get(getItemId(initItem));
-            return existing || initItem; // Prefer existing if item content might change but ID is same
-        }).filter(item => initialItemMap.has(getItemId(item))); // Ensure only items present in initialItems are kept
-
-        // Filter out items from orderedItems that are no longer in initialItems
-        const finalOrderedItems = orderedItems.filter(item => initialItemMap.has(getItemId(item)));
-        
-        // Add new items from initialItems that are not in finalOrderedItems
-        initialItems.forEach(initItem => {
-            if (!finalOrderedItems.find(foItem => getItemId(foItem) === getItemId(initItem))) {
-                finalOrderedItems.push(initItem); // Add new items at the end, or implement specific logic
-            }
-        });
-
-        // Simple update based on new initialItems, trying to preserve order by ID if possible
-        // This keeps items that are still present, and adds new ones. Order of new ones might be just appended.
-        // A more sophisticated merge might be needed for complex cases.
-         setOrderedItems(initialItems);
-    }
-
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialItems, getItemId]); // Only re-run if initialItems or getItemId function changes
+    // This effect ensures that if the initialItems prop changes from the parent,
+    // the internal orderedItems state reflects that change.
+    // The parent component (e.g., AdminSchoolProductsPage) is responsible for
+    // ensuring initialItems is correctly sorted if it's derived from context.
+    setOrderedItems(initialItems);
+  }, [initialItems, getItemId]); // Listen to changes in initialItems or how item IDs are obtained.
 
   const handleDragStart = useCallback((e: DragEvent<HTMLElement>, index: number) => {
     setDraggingIndex(index);
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", index.toString()); // Minimal data, item from state
-    if (e.currentTarget) e.currentTarget.style.opacity = '0.4';
-  }, []);
+    // Using a minimal data transfer as the actual item data is sourced from the component's state.
+    // This is primarily to enable the drag operation.
+    e.dataTransfer.setData("text/plain", getItemId(orderedItems[index])); 
+    if (e.currentTarget && e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '0.4'; // Visual feedback for dragging
+    }
+  }, [getItemId, orderedItems]);
 
   const handleDragOver = useCallback((e: DragEvent<HTMLElement>, index: number) => {
-    e.preventDefault();
+    e.preventDefault(); // Necessary to allow dropping
     if (index !== draggingIndex) {
       setDragOverIndex(index);
-      e.dataTransfer.dropEffect = "move";
+      e.dataTransfer.dropEffect = "move"; // Visual feedback for drop target
     }
   }, [draggingIndex]);
 
@@ -112,15 +71,17 @@ function useDraggableList<T>({
     const draggedItem = newOrderedList.splice(draggingIndex, 1)[0];
     newOrderedList.splice(dropIndex, 0, draggedItem);
     
-    setOrderedItems(newOrderedList);
-    onOrderChange(newOrderedList); // Notify parent of the new order
+    setOrderedItems(newOrderedList); // Update local state immediately for responsive UI
+    onOrderChange(newOrderedList);  // Notify parent of the new order
 
     setDraggingIndex(null);
     setDragOverIndex(null);
   }, [draggingIndex, orderedItems, onOrderChange]);
 
   const handleDragEnd = useCallback((e: DragEvent<HTMLElement>) => {
-    if (e.currentTarget) e.currentTarget.style.opacity = '1';
+    if (e.currentTarget && e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '1'; // Reset opacity
+    }
     setDraggingIndex(null);
     setDragOverIndex(null);
   }, []);

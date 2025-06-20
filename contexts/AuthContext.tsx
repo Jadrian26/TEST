@@ -1,11 +1,9 @@
-
-import React, { createContext, useState, useContext, ReactNode, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient'; // Import Supabase client
 import { UserProfile, Address, Order, CartItem, DeliveryMethod, AuthContextType, DbOrder, DbOrderItem, UserRegistrationData } from '../types';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// This placeholder is now only for client-side UI hints if needed, actual pickup orders have null shipping_address_json.
 const PICKUP_ADDRESS_PLACEHOLDER: Address = {
   id: 'pickup-address-placeholder',
   primaryAddress: 'Retiro en Local',
@@ -14,7 +12,6 @@ const PICKUP_ADDRESS_PLACEHOLDER: Address = {
   isDefault: false,
 };
 
-// Helper to map DB profile to UserProfile
 const mapDbProfileToUserProfile = (dbProfile: any, orders: Order[] = []): UserProfile => ({
   id: dbProfile.id,
   firstName: dbProfile.first_name,
@@ -26,15 +23,15 @@ const mapDbProfileToUserProfile = (dbProfile: any, orders: Order[] = []): UserPr
   isAdmin: dbProfile.is_admin,
   isSales: dbProfile.is_sales,
   schoolId: dbProfile.school_id,
+  cartItems: dbProfile.cart_items || [],
   orders: orders,
 });
 
-// Helper to map UserProfile partial to DB profile partial
 const mapUserProfileToDbProfilePartial = (userProfilePartial: Partial<UserProfile>): Record<string, any> => {
     const dbPartial: Record<string, any> = {};
     if (userProfilePartial.firstName !== undefined) dbPartial.first_name = userProfilePartial.firstName;
     if (userProfilePartial.lastName !== undefined) dbPartial.last_name = userProfilePartial.lastName;
-    if (userProfilePartial.email !== undefined) dbPartial.email = userProfilePartial.email; // Email update should be handled carefully
+    if (userProfilePartial.email !== undefined) dbPartial.email = userProfilePartial.email;
     if (userProfilePartial.phone !== undefined) dbPartial.phone = userProfilePartial.phone;
     if (userProfilePartial.idCardNumber !== undefined) dbPartial.id_card_number = userProfilePartial.idCardNumber;
     if (userProfilePartial.schoolId !== undefined) dbPartial.school_id = userProfilePartial.schoolId;
@@ -46,18 +43,23 @@ const mapUserProfileToDbProfilePartial = (userProfilePartial: Partial<UserProfil
 
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserProfile | undefined>(undefined); // Initialize as undefined
   const [loadingAuth, setLoadingAuth] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false); // New state for logout
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
 
+  const currentUserRef = useRef(currentUser);
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
 
   const fetchUserOrders = useCallback(async (userIdToFetch?: string): Promise<Order[]> => {
-    const targetUserId = userIdToFetch || currentUser?.id;
+    const targetUserId = userIdToFetch || currentUserRef.current?.id;
     if (!targetUserId) return [];
     try {
       const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
-        .select<string, DbOrder>('*') 
+        .select<string, DbOrder>('*')
         .eq('user_id', targetUserId)
         .order('created_at', { ascending: false });
 
@@ -65,10 +67,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (!ordersData) return [];
 
       const fetchedOrders: Order[] = [];
-      for (const dbOrder of ordersData) { 
+      for (const dbOrder of ordersData) {
         const { data: itemsData, error: itemsError } = await supabase
           .from('order_items')
-          .select<string, DbOrderItem>('*') 
+          .select<string, DbOrderItem>('*')
           .eq('order_id', dbOrder.id);
 
         if (itemsError) {
@@ -82,14 +84,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           date: dbOrder.order_date,
           status: dbOrder.status,
           total: dbOrder.total_amount,
-          items: itemsData ? itemsData.map(item => ({ 
+          items: itemsData ? itemsData.map(item => ({
             productId: item.product_id_ref,
             name: item.product_name,
             quantity: item.quantity,
             price: item.price_at_purchase,
             selectedSize: item.selected_size,
           })) : [],
-          shippingAddress: dbOrder.shipping_address_json, 
+          shippingAddress: dbOrder.shipping_address_json,
           deliveryMethod: dbOrder.delivery_method,
           userId: dbOrder.user_id,
           placedByUserId: dbOrder.placed_by_user_id,
@@ -99,24 +101,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       return fetchedOrders;
     } catch (error) {
-      const specificError = error as any;
-      console.error("AuthContext: Error fetching user orders:", specificError);
-      if (specificError instanceof TypeError && specificError.message === 'Failed to fetch') {
-        console.warn("AuthContext: A 'TypeError: Failed to fetch' occurred while fetching user orders. This commonly indicates network connectivity problems, an issue with the Supabase service, or potential browser/environment restrictions (e.g., CORS, ad-blockers, sandboxed environment network policies). Please check your internet connection and Supabase project status. If running in a restricted environment, network policies might be blocking the request.");
-      }
+      console.error("AuthContext: Error fetching user orders:", error);
       return [];
     }
-  }, [currentUser?.id]); 
+  }, []);
 
-  const fetchAllUsers = useCallback(async (forCurrentUserSession?: UserProfile | null) => {
-    const effectiveUserForPermCheck = forCurrentUserSession || currentUser;
-    
+  const fetchAllUsers = useCallback(async (effectiveUserForPermCheck?: UserProfile | null) => {
     if (!effectiveUserForPermCheck?.isAdmin) {
-      if (effectiveUserForPermCheck) { 
-        setAllUsers([effectiveUserForPermCheck]);
-      } else { 
-        setAllUsers([]);
-      }
+      setAllUsers(effectiveUserForPermCheck ? [effectiveUserForPermCheck] : []);
       return;
     }
 
@@ -124,7 +116,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const { data: usersData, error: usersError } = await supabase
         .from('profiles')
         .select('*');
-
       if (usersError) throw usersError;
 
       if (usersData) {
@@ -141,153 +132,105 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.error("AuthContext: Error fetching all users:", error);
       setAllUsers([]);
     }
-  }, [fetchUserOrders, currentUser]);
+  }, [fetchUserOrders]);
 
+  const fetchUserOrdersRef = useRef(fetchUserOrders);
+  useEffect(() => { fetchUserOrdersRef.current = fetchUserOrders; }, [fetchUserOrders]);
+
+  const fetchAllUsersRef = useRef(fetchAllUsers);
+  useEffect(() => { fetchAllUsersRef.current = fetchAllUsers; }, [fetchAllUsers]);
 
   const schoolSelectionIsMandatory = useMemo(() => {
-    if (loadingAuth) return false; 
+    if (loadingAuth || currentUser === undefined) return false; // Wait for auth to settle
     const adminExists = allUsers.some(user => user.isAdmin);
     const salesExists = allUsers.some(user => user.isSales);
     return adminExists && salesExists;
-  }, [allUsers, loadingAuth]);
+  }, [allUsers, loadingAuth, currentUser]);
 
   useEffect(() => {
+    let isMounted = true;
     setLoadingAuth(true);
-    
+
     const { data: authListenerData, error: listenerError } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const user = session?.user;
-      if (user) {
-        const { data: profileData, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
+      if (!isMounted) return;
+      // setLoadingAuth(true) here can cause quick flickers if event fires rapidly. 
+      // Handled by the outer setLoadingAuth(true) and final setLoadingAuth(false).
 
-        if (error) {
-          console.error('AuthContext: Error fetching profile for authenticated user:', error.message || error);
+      const authUser = session?.user;
+      if (authUser) {
+        try {
+          const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', authUser.id)
+            .single();
+
+          if (!isMounted) return;
+
+          if (profileError || !profileData) {
+            console.error('AuthContext: Error fetching profile or profile not found:', profileError?.message || 'Profile not found');
+            setCurrentUser(null);
+          } else {
+            const ordersForCurrentUser = await fetchUserOrdersRef.current(profileData.id);
+            if (!isMounted) return;
+            const mappedUser = mapDbProfileToUserProfile(profileData, ordersForCurrentUser);
+            setCurrentUser(mappedUser);
+          }
+        } catch (e) {
+          if (!isMounted) return;
+          console.error("AuthContext: Exception during profile/order fetch in onAuthStateChange", e);
           setCurrentUser(null);
-          setAllUsers([]); 
-        } else if (profileData) {
-          const orders = await fetchUserOrders(profileData.id);
-          const mappedUser = mapDbProfileToUserProfile(profileData, orders);
-          setCurrentUser(mappedUser);
-          await fetchAllUsers(mappedUser); 
-        } else {
-            console.warn(`AuthContext: User with ID ${user.id} and email ${user.email} is authenticated but their profile was NOT FOUND in the 'profiles' table.`);
-            setCurrentUser(null); 
-            setAllUsers([]);
         }
-      } else {
+      } else { // No authUser
         setCurrentUser(null);
-        await fetchAllUsers(null); 
       }
-      setLoadingAuth(false);
+      if (isMounted) setLoadingAuth(false); // Crucial: set loading false after user object is settled
     });
-
+    
     if (listenerError) {
         console.error("AuthContext: Failed to subscribe to auth state changes:", listenerError);
-        setLoadingAuth(false);
-        setCurrentUser(null);
-        fetchAllUsers(null).catch(e => console.error("AuthContext: Error fetching users on auth listener error:", e));
+        if (isMounted) {
+            setCurrentUser(null);
+            setLoadingAuth(false);
+        }
         return;
     }
-
-    const authSubscription = authListenerData?.subscription;
     
-    const checkInitialSession = async () => {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user) {
-           // This ensures allUsers is populated for schoolSelectionIsMandatory if no one is logged in initially.
-           // onAuthStateChange will also handle this, but this provides an earlier fetch if needed.
-           await fetchAllUsers(null); 
-        }
-        // If onAuthStateChange hasn't fired yet to set loadingAuth to false, this might be too early.
-        // However, onAuthStateChange should fire almost immediately with the initial state.
-        // If loadingAuth is still true here, it means onAuthStateChange is still processing.
-    };
-
-    checkInitialSession().catch(e => console.error("AuthContext: Error in initial session check:", e));
+    // Initial session check no longer needs to manually set loadingAuth(false) or call fetchAllUsers.
+    // onAuthStateChange with 'INITIAL_SESSION' event will handle it.
+    // supabase.auth.getSession(); // This is implicitly handled by onAuthStateChange for INITIAL_SESSION
 
     return () => {
-      authSubscription?.unsubscribe();
+      isMounted = false;
+      authListenerData?.subscription?.unsubscribe();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchUserOrders, fetchAllUsers]); 
-  
-  // Effect for Realtime Subscriptions
+  }, []); // Empty deps for main listener setup
+
+  // New useEffect to fetch allUsers reactively
   useEffect(() => {
-    if (loadingAuth) return; 
-
-    const ordersChannel = supabase
-      .channel('public-orders-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'orders' },
-        async (payload) => {
-          console.log('AuthContext: Orders change received!', payload);
-          const currentAuthUser = currentUser; 
-          if (currentAuthUser) {
-            if (currentAuthUser.isAdmin || currentAuthUser.isSales) {
-              await fetchAllUsers(currentAuthUser);
-            } else {
-              const updatedOrders = await fetchUserOrders(currentAuthUser.id);
-              setCurrentUser(prevUser => prevUser ? {...prevUser, orders: updatedOrders} : null);
-            }
-          }
-        }
-      )
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') console.log('AuthContext: Subscribed to orders changes!');
-        if (err) console.error('AuthContext: Orders subscription error', err);
-      });
-
-    const profilesChannel = supabase
-      .channel('public-profiles-realtime')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'profiles' },
-        async (payload) => {
-          console.log('AuthContext: Profiles change received!', payload);
-          const currentAuthUser = currentUser;
-          if (currentAuthUser) {
-            if (currentAuthUser.isAdmin) {
-              await fetchAllUsers(currentAuthUser); 
-            } else if (payload.new && (payload.new as any).id === currentAuthUser.id) {
-              const { data: profileData, error } = await supabase
-                .from('profiles').select('*').eq('id', currentAuthUser.id).single();
-              if (profileData && !error) {
-                const orders = await fetchUserOrders(profileData.id); 
-                setCurrentUser(mapDbProfileToUserProfile(profileData, orders));
-              }
-            }
-          } else {
-            await fetchAllUsers(null);
-          }
-        }
-      )
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') console.log('AuthContext: Subscribed to profiles changes!');
-        if (err) console.error('AuthContext: Profiles subscription error', err);
-      });
-
-    return () => {
-      supabase.removeChannel(ordersChannel).catch(err => console.error("Error removing orders channel:", err));
-      supabase.removeChannel(profilesChannel).catch(err => console.error("Error removing profiles channel:", err));
+    let isMounted = true;
+    const effectFetchAllUsers = async () => {
+      // Only run if initial auth loading is complete AND currentUser state is determined (not undefined)
+      if (!loadingAuth && currentUser !== undefined && isMounted) {
+        // console.log("AuthContext: Fetching all users based on currentUser change:", currentUser?.email);
+        await fetchAllUsersRef.current(currentUser); // currentUser can be null here
+      }
     };
-  }, [loadingAuth, currentUser, fetchAllUsers, fetchUserOrders]); 
 
-  const login = async (email: string, password: string) => {
-    setLoadingAuth(true);
+    effectFetchAllUsers();
+    return () => { isMounted = false; };
+  }, [currentUser, loadingAuth]);
+
+
+  const login = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-        setLoadingAuth(false);
         return { success: false, message: error.message, error };
     }
     return { success: true };
-  };
+  }, []);
 
-  const register = async (userData: UserRegistrationData) => {
-    setLoadingAuth(true);
+  const register = useCallback(async (userData: UserRegistrationData) => {
     const { error } = await supabase.auth.signUp({
       email: userData.email,
       password: userData.password,
@@ -296,80 +239,105 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           firstName: userData.firstName,
           lastName: userData.lastName,
           idCardNumber: userData.idCardNumber,
-          schoolId: userData.schoolId, 
+          schoolId: userData.schoolId,
           phone: userData.phone,
         },
       },
     });
     if (error) {
-        setLoadingAuth(false);
         return { success: false, message: error.message, error };
     }
-    return { success: true, message: "Registro exitoso. Por favor, revisa tu correo para verificar tu cuenta." };
-  };
+    return { success: true };
+  }, []);
 
-  const logout = async () => {
-    setLoadingAuth(true); 
-    await supabase.auth.signOut();
-  };
+  const logout = useCallback(async (): Promise<{ success: boolean; message?: string; error?: any }> => {
+    setIsLoggingOut(true); 
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        return { success: false, message: `Error al cerrar sesión: ${error.message}`, error };
+      }
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, message: `Error inesperado al cerrar sesión: ${e.message}`, error: e };
+    } finally {
+      setIsLoggingOut(false); 
+    }
+  }, []);
 
-  const updateCurrentUserProfile = async (
+  const updateCurrentUserProfile = useCallback(async (
     updatedProfileData: Partial<Pick<UserProfile, 'firstName' | 'lastName' | 'email' | 'phone' | 'schoolId' | 'idCardNumber'>>
   ) => {
-    if (!currentUser) return { success: false, message: "Usuario no autenticado." };
+    if (!currentUserRef.current) return { success: false, message: "Usuario no autenticado." };
     
     const dbUpdates = mapUserProfileToDbProfilePartial(updatedProfileData);
 
     const { error } = await supabase
       .from('profiles')
       .update(dbUpdates)
-      .eq('id', currentUser.id);
+      .eq('id', currentUserRef.current.id);
 
     if (error) return { success: false, message: error.message };
     
     const { data: refreshedProfile, error: refreshError } = await supabase
-        .from('profiles').select('*').eq('id', currentUser.id).single();
+        .from('profiles').select('*').eq('id', currentUserRef.current.id).single();
     if (refreshedProfile && !refreshError) {
-        const orders = await fetchUserOrders(refreshedProfile.id); 
-        setCurrentUser(mapDbProfileToUserProfile(refreshedProfile, orders)); 
+        const orders = await fetchUserOrdersRef.current(refreshedProfile.id);
+        const fullUser = mapDbProfileToUserProfile(refreshedProfile, orders);
+        setCurrentUser(fullUser); 
     } else if (refreshError) {
         console.error("AuthContext: Error re-fetching profile after update:", refreshError.message);
+        setCurrentUser(prev => prev ? {...prev, ...updatedProfileData} : null);
     }
     return { success: true, message: "Perfil actualizado." };
-  };
+  }, []);
 
-  const updateUserAddresses = async (newAddresses: Address[]) => {
-    if (!currentUser) return { success: false, message: "Usuario no autenticado." };
+  const updateUserAddresses = useCallback(async (newAddresses: Address[]) => {
+    if (!currentUserRef.current) return { success: false, message: "Usuario no autenticado." };
     const { error } = await supabase
       .from('profiles')
       .update({ addresses: newAddresses })
-      .eq('id', currentUser.id);
+      .eq('id', currentUserRef.current.id);
 
     if (error) return { success: false, message: error.message };
     setCurrentUser(prev => prev ? { ...prev, addresses: newAddresses } : null);
     return { success: true, message: "Direcciones actualizadas." };
-  };
+  }, []);
 
-  const createOrder = async (
+  const updateUserCart = useCallback(async (items: CartItem[]) => {
+    if (!currentUserRef.current) return { success: false, message: "Usuario no autenticado para guardar carrito." };
+    const { error } = await supabase
+      .from('profiles')
+      .update({ cart_items: items })
+      .eq('id', currentUserRef.current.id);
+    if (error) {
+      console.error("AuthContext: Error updating cart in DB:", error);
+      return { success: false, message: `Error al guardar carrito: ${error.message}` };
+    }
+    setCurrentUser(prev => prev ? { ...prev, cartItems: items } : null);
+    return { success: true, message: "Carrito guardado en perfil." };
+  }, []);
+
+  const createOrder = useCallback(async (
     cartItems: CartItem[],
     shippingAddress: Address | null,
     deliveryMethod: DeliveryMethod,
     customerForOrder?: { name: string; idCard: string }
   ) => {
-    if (!currentUser || cartItems.length === 0) {
+    if (!currentUserRef.current || cartItems.length === 0) {
       return { success: false, message: "Error en la información del pedido." };
     }
 
     const totalAmount = cartItems.reduce((sum, item) => sum + item.priceAtPurchase * item.quantity, 0) + (deliveryMethod === 'delivery' ? 5 : 0);
     
     const orderToInsert: Omit<DbOrder, 'id' | 'display_order_id' | 'created_at' | 'updated_at'> = {
-        user_id: currentUser.id,
-        order_date: new Date().toISOString().split('T')[0], 
+        user_id: currentUserRef.current.id,
+        order_date: new Date().toISOString().split('T')[0],
         status: 'Processing',
         total_amount: totalAmount,
         shipping_address_json: deliveryMethod === 'delivery' ? shippingAddress : null,
         delivery_method: deliveryMethod,
-        placed_by_user_id: (currentUser.isAdmin || currentUser.isSales) ? currentUser.id : null,
+        placed_by_user_id: (currentUserRef.current.isAdmin || currentUserRef.current.isSales) ? currentUserRef.current.id : null,
         customer_name_for_order: customerForOrder?.name,
         customer_id_card_for_order: customerForOrder?.idCard,
     };
@@ -385,7 +353,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
     
     const orderItemsToInsert = cartItems.map(item => ({
-      order_id: newOrderData.id, 
+      order_id: newOrderData.id,
       product_id_ref: item.product.id,
       product_name: item.product.name,
       quantity: item.quantity,
@@ -399,26 +367,40 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.error("Error inserting order items, order created but items failed:", itemsError);
       return { success: false, message: `Pedido creado (${newOrderData.display_order_id}), pero error al guardar artículos: ${itemsError.message}` };
     }
+    
+    await updateUserCart([]); 
 
+    if (currentUserRef.current) {
+        const updatedOrders = await fetchUserOrdersRef.current(currentUserRef.current.id);
+        setCurrentUser(prev => prev ? { ...prev, orders: updatedOrders, cartItems: [] } : null);
+    }
     return { success: true, orderId: newOrderData.display_order_id, dbOrderId: newOrderData.id, message: "Pedido realizado con éxito." };
-  };
+  }, [updateUserCart]);
 
-
-  const updateOrderStatus = async (order_db_id: string, newStatus: Order['status']) => {
+  const updateOrderStatus = useCallback(async (order_db_id: string, newStatus: Order['status']) => {
     const { error } = await supabase
       .from('orders')
       .update({ status: newStatus })
-      .eq('id', order_db_id); 
+      .eq('id', order_db_id);
 
     if (error) return { success: false, message: error.message };
+    
+    if (currentUserRef.current && !currentUserRef.current.isAdmin) {
+        const updatedOrders = await fetchUserOrdersRef.current(currentUserRef.current.id);
+        setCurrentUser(prev => prev ? { ...prev, orders: updatedOrders } : null);
+    } else if (currentUserRef.current?.isAdmin) {
+       // No need to explicitly call fetchAllUsers here, as it's triggered by setCurrentUser in other parts
+       // or by the useEffect watching currentUser. Forcing might be redundant.
+       // The parent component (AdminViewOrdersPage) should see the updated orders in allUsers.
+    }
     return { success: true, message: "Estado del pedido actualizado." };
-  };
+  }, []);
 
-  const updateUserProfileByAdmin = async (
-    userId: string, 
+  const updateUserProfileByAdmin = useCallback(async (
+    userId: string,
     updatedData: Partial<Pick<UserProfile, 'firstName' | 'lastName' | 'email' | 'phone' | 'schoolId' | 'idCardNumber' | 'isAdmin' | 'isSales'>>
   ) => {
-    if (!currentUser?.isAdmin) return { success: false, message: "No autorizado." };
+    if (!currentUserRef.current?.isAdmin) return { success: false, message: "No autorizado." };
     
     const dbUpdates = mapUserProfileToDbProfilePartial(updatedData);
 
@@ -428,32 +410,35 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       .eq('id', userId);
 
     if (error) return { success: false, message: error.message };
+    await fetchAllUsersRef.current(currentUserRef.current);
     return { success: true, message: "Perfil de usuario actualizado por administrador." };
-  };
+  }, []);
   
-  const sendPasswordResetEmail = async (email: string) => {
+  const sendPasswordResetEmail = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {});
     if (error) return { success: false, message: error.message };
     return { success: true, message: "Si existe una cuenta con este correo, se ha enviado un enlace para restablecer la contraseña." };
-  };
+  }, []);
 
 
   return (
-    <AuthContext.Provider value={{ 
-        currentUser, 
-        loadingAuth, 
-        login, 
-        register, 
-        logout, 
-        updateCurrentUserProfile, 
+    <AuthContext.Provider value={{
+        currentUser,
+        loadingAuth,
+        isLoggingOut,
+        login,
+        register,
+        logout,
+        updateCurrentUserProfile,
         updateUserAddresses,
+        updateUserCart,
         createOrder,
         updateOrderStatus,
         updateUserProfileByAdmin,
         sendPasswordResetEmail,
-        fetchUserOrders: () => fetchUserOrders(), 
+        fetchUserOrders: useCallback(() => fetchUserOrders(), [fetchUserOrders]),
         allUsers,
-        fetchAllUsers: () => fetchAllUsers(currentUser),
+        fetchAllUsers: useCallback(() => fetchAllUsers(currentUserRef.current), [fetchAllUsers]),
         schoolSelectionIsMandatory,
     }}>
       {children}

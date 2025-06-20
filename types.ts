@@ -108,11 +108,12 @@ export interface UserProfile {
   isAdmin?: boolean; // Mapped from profiles.is_admin
   isSales?: boolean; // Mapped from profiles.is_sales
   schoolId: string | null; // Mapped from profiles.school_id
+  cartItems?: CartItem[]; // Added to store user's cart
   // DB columns: created_at, updated_at
 }
 
 // User data for registration, some fields are optional or handled by DB/auth
-export type UserRegistrationData = Omit<UserProfile, 'id' | 'addresses' | 'orders' | 'isAdmin' | 'isSales'> & {
+export type UserRegistrationData = Omit<UserProfile, 'id' | 'addresses' | 'orders' | 'isAdmin' | 'isSales' | 'cartItems'> & {
   password: string;
 };
 
@@ -120,14 +121,16 @@ export type UserRegistrationData = Omit<UserProfile, 'id' | 'addresses' | 'order
 export interface AuthContextType {
   currentUser: UserProfile | null;
   loadingAuth: boolean;
+  isLoggingOut?: boolean; // Added for logout specific loading state
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string; error?: any }>;
   register: (userData: UserRegistrationData) => Promise<{ success: boolean; message?: string; error?: any }>;
-  logout: () => Promise<void>;
+  logout: () => Promise<{ success: boolean; message?: string; error?: any }>; // Reverted signature
   updateCurrentUserProfile: (
     updatedProfileData: Partial<Pick<UserProfile, 'firstName' | 'lastName' | 'email' | 'phone' | 'schoolId' | 'idCardNumber'>>
   ) => Promise<{ success: boolean; message?: string }>;
   updateUserAddresses: (newAddresses: Address[]) => Promise<{ success: boolean; message?: string }>;
-  createOrder: ( 
+  updateUserCart: (items: CartItem[]) => Promise<{ success: boolean; message?: string }>; // Added
+  createOrder: (
     cartItems: CartItem[],
     shippingAddress: Address | null, // Full address object or null for pickup
     deliveryMethod: DeliveryMethod,

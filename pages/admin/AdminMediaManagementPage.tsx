@@ -11,7 +11,8 @@ import ListBulletIcon from '../../components/admin/icons/ListBulletIcon';
 import Squares2X2Icon from '../../components/admin/icons/Squares2X2Icon';
 import useFileUpload from '../../hooks/useFileUpload';
 import { useNotifications } from '../../contexts/NotificationsContext';
-import { useSearchAndFilter } from '../../hooks/useSearchAndFilter'; // Added
+import { useSearchAndFilter } from '../../hooks/useSearchAndFilter'; 
+import useDebounce from '../../hooks/useDebounce'; // Import useDebounce
 
 const AdminMediaManagementPage: React.FC = () => {
   const { mediaItems, deleteMediaItem, isLoadingMedia } = useMedia();
@@ -35,11 +36,18 @@ const AdminMediaManagementPage: React.FC = () => {
     clearFeedback: clearUploadFeedback
   } = useFileUpload();
 
+  const [localSearchTerm, setLocalSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(localSearchTerm, 300);
+
   const {
     processedData: filteredMediaItems,
-    searchTerm,
-    setSearchTerm,
+    // searchTerm, // Not used directly for input value anymore
+    setSearchTerm, // Used with debounced value
   } = useSearchAndFilter<MediaItem>(mediaItems, { searchKeys: ['name'] });
+
+  useEffect(() => {
+    setSearchTerm(debouncedSearchTerm);
+  }, [debouncedSearchTerm, setSearchTerm]);
 
   useEffect(() => {
     if (uploadFeedback) {
@@ -120,8 +128,8 @@ const AdminMediaManagementPage: React.FC = () => {
                  <input
                     type="text"
                     placeholder="Buscar por nombre..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    value={localSearchTerm}
+                    onChange={(e) => setLocalSearchTerm(e.target.value)}
                     className="w-full sm:w-64 p-2 text-sm border border-brand-quaternary rounded-md focus:ring-brand-tertiary focus:border-brand-tertiary"
                     aria-label="Buscar en biblioteca de medios"
                   />

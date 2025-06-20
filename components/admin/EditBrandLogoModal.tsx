@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useEditableContent } from '../../contexts/EditableContentContext';
 import { useMedia } from '../../contexts/MediaContext';
@@ -7,7 +6,8 @@ import CloseIcon from '../icons/CloseIcon';
 import MediaSelectionModal from './MediaSelectionModal';
 import MediaIcon from './icons/MediaIcon'; 
 import useModalState from '../../hooks/useModalState'; 
-import { useNotifications } from '../../contexts/NotificationsContext'; // Added
+import { useNotifications } from '../../contexts/NotificationsContext'; 
+import useButtonCooldown from '../../hooks/useButtonCooldown'; // Importar hook
 
 interface EditBrandLogoModalProps {
   isOpen: boolean;
@@ -17,11 +17,23 @@ interface EditBrandLogoModalProps {
 const EditBrandLogoModal: React.FC<EditBrandLogoModalProps> = ({ isOpen, onClose }) => {
   const { brandLogoId, updateBrandLogoId } = useEditableContent();
   const { mediaItems } = useMedia();
-  const { showNotification } = useNotifications(); // Added
+  const { showNotification } = useNotifications(); 
 
   const [currentLogoId, setCurrentLogoId] = useState<string | null>(null);
   const { isOpen: isMediaSelectionModalOpen, openModal: openMediaSelectionModal, closeModal: closeMediaSelectionModal } = useModalState();
   const [isVisible, setIsVisible] = useState(false);
+
+  const saveLogoAction = async () => {
+    await updateBrandLogoId(currentLogoId);
+    showNotification("Logo del sitio actualizado.", 'success');
+    handleCloseModal();
+  };
+
+  const { 
+    trigger: triggerSaveChanges, 
+    isCoolingDown, 
+    timeLeft 
+  } = useButtonCooldown(saveLogoAction, 2000);
 
   useEffect(() => {
     if (isOpen) {
@@ -45,18 +57,7 @@ const EditBrandLogoModal: React.FC<EditBrandLogoModalProps> = ({ isOpen, onClose
   };
 
   const handleRemoveLogo = () => {
-    setCurrentLogoId(null); // Set to null to use APP_NAME as text fallback
-  };
-
-  const handleSaveChanges = async () => {
-    try {
-      await updateBrandLogoId(currentLogoId);
-      showNotification("Logo del sitio actualizado.", 'success');
-      handleCloseModal();
-    } catch (error) {
-      showNotification("Error al actualizar el logo.", 'error');
-      console.error("Error saving brand logo:", error);
-    }
+    setCurrentLogoId(null); 
   };
 
   const currentLogoPreviewItem = currentLogoId ? mediaItems.find(item => item.id === currentLogoId) : null;
@@ -125,11 +126,16 @@ const EditBrandLogoModal: React.FC<EditBrandLogoModalProps> = ({ isOpen, onClose
           </div>
 
           <div className="mt-8 flex justify-end space-x-3">
-            <button type="button" onClick={handleCloseModal} className="btn-ghost">
+            <button type="button" onClick={handleCloseModal} className="btn-ghost" disabled={isCoolingDown}>
               Cancelar
             </button>
-            <button type="button" onClick={handleSaveChanges} className="btn-primary">
-              Guardar Cambios
+            <button 
+              type="button" 
+              onClick={triggerSaveChanges} 
+              className="btn-primary"
+              disabled={isCoolingDown}
+            >
+              {isCoolingDown ? `Guardando... (${timeLeft}s)` : 'Guardar Cambios'}
             </button>
           </div>
         </div>

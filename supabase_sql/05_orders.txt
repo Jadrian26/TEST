@@ -23,12 +23,16 @@ ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 
 -- Function and Trigger to auto-generate display_order_id
 CREATE OR REPLACE FUNCTION public.generate_display_order_id()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
   NEW.display_order_id = '#' || nextval('public.order_id_seq');
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE TRIGGER set_display_order_id
 BEFORE INSERT ON public.orders
