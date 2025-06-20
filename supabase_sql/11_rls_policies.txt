@@ -1,0 +1,175 @@
+
+-- ==== PROFILES TABLE RLS ====
+-- Allow users to view their own profile
+CREATE POLICY "Allow individual user read access"
+ON public.profiles FOR SELECT
+USING (auth.uid() = id);
+
+-- Allow users to update their own profile (specific columns, no role changes)
+CREATE POLICY "Allow individual user update access for own profile"
+ON public.profiles FOR UPDATE
+USING (auth.uid() = id)
+WITH CHECK (auth.uid() = id);
+
+-- Allow admins to manage all profiles (select, insert, update, delete)
+CREATE POLICY "Allow admin full access to profiles"
+ON public.profiles FOR ALL
+USING ( public.is_claims_admin() )
+WITH CHECK ( public.is_claims_admin() );
+
+
+-- ==== SCHOOLS TABLE RLS ====
+-- Allow public read access to schools
+CREATE POLICY "Allow public read access to schools"
+ON public.schools FOR SELECT
+USING (true);
+
+-- Allow admins to manage schools
+CREATE POLICY "Allow admin full access to schools"
+ON public.schools FOR ALL
+USING ( public.is_claims_admin() )
+WITH CHECK ( public.is_claims_admin() );
+
+
+-- ==== PRODUCTS TABLE RLS ====
+-- Allow public read access to products
+CREATE POLICY "Allow public read access to products"
+ON public.products FOR SELECT
+USING (true);
+
+-- Allow admins to manage products
+CREATE POLICY "Allow admin full access to products"
+ON public.products FOR ALL
+USING ( public.is_claims_admin() )
+WITH CHECK ( public.is_claims_admin() );
+
+
+-- ==== ORDERS TABLE RLS ====
+-- Allow users to view their own orders
+CREATE POLICY "Allow user to view their own orders"
+ON public.orders FOR SELECT
+USING (auth.uid() = user_id);
+
+-- Allow users to create their own orders
+CREATE POLICY "Allow user to create their own orders"
+ON public.orders FOR INSERT
+WITH CHECK (auth.uid() = user_id); -- 'user_id' here implicitly means NEW.user_id
+
+-- Allow admins/sales to view all orders
+CREATE POLICY "Allow admin_sales to view all orders"
+ON public.orders FOR SELECT
+USING (
+  public.is_claims_admin() OR
+  public.is_claims_sales()
+);
+
+-- CORREGIDO: Allow admins/sales to create orders (potentially for other users)
+CREATE POLICY "Allow admin_sales to create orders"
+ON public.orders FOR INSERT
+WITH CHECK (
+  (
+    public.is_claims_admin() OR
+    public.is_claims_sales()
+  ) AND
+  (
+    (placed_by_user_id IS NULL) OR (placed_by_user_id = auth.uid()) 
+  )
+);
+
+-- Allow admins to update order status
+CREATE POLICY "Allow admin to update order status"
+ON public.orders FOR UPDATE
+USING ( public.is_claims_admin() )
+WITH CHECK ( public.is_claims_admin() );
+
+
+-- ==== ORDER_ITEMS TABLE RLS ====
+-- Allow users to view order items related to their own orders
+CREATE POLICY "Allow user to view their order items"
+ON public.order_items FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM public.orders o
+    WHERE o.id = order_items.order_id AND o.user_id = auth.uid()
+  )
+);
+
+-- Allow admins/sales to view all order items
+CREATE POLICY "Allow admin_sales to view all order items"
+ON public.order_items FOR SELECT
+USING (
+  public.is_claims_admin() OR
+  public.is_claims_sales()
+);
+
+CREATE POLICY "Allow admin_sales to insert order_items"
+ON public.order_items FOR INSERT
+WITH CHECK (
+    public.is_claims_admin() OR
+    public.is_claims_sales()
+);
+
+
+-- ==== MEDIA_ITEMS TABLE RLS ====
+-- Allow public read access to media items
+CREATE POLICY "Allow public read access to media_items"
+ON public.media_items FOR SELECT
+USING (true);
+
+-- Allow authenticated users to upload media (insert)
+CREATE POLICY "Allow authenticated users to upload media"
+ON public.media_items FOR INSERT
+WITH CHECK (
+    auth.role() = 'authenticated' AND
+    ( (user_id_uploader IS NULL) OR (user_id_uploader = auth.uid()) ) 
+);
+
+
+-- Allow users to delete their own media or admins to delete any
+CREATE POLICY "Allow user to delete own media or admin to delete any"
+ON public.media_items FOR DELETE
+USING (
+  auth.uid() = user_id_uploader OR
+  public.is_claims_admin()
+);
+
+-- Allow admins to update any media metadata
+CREATE POLICY "Allow admin to update media metadata"
+ON public.media_items FOR UPDATE
+USING (public.is_claims_admin())
+WITH CHECK (public.is_claims_admin());
+
+
+-- ==== SITE CONFIGURATION TABLES RLS ====
+
+-- For general_site_settings
+CREATE POLICY "Allow public read access to general_site_settings"
+ON public.general_site_settings FOR SELECT USING (true);
+CREATE POLICY "Allow admin full access to general_site_settings"
+ON public.general_site_settings FOR ALL
+USING ( public.is_claims_admin() )
+WITH CHECK ( public.is_claims_admin() );
+
+-- For hero_slides_config
+CREATE POLICY "Allow public read access to hero_slides_config"
+ON public.hero_slides_config FOR SELECT USING (true);
+CREATE POLICY "Allow admin full access to hero_slides_config"
+ON public.hero_slides_config FOR ALL
+USING ( public.is_claims_admin() )
+WITH CHECK ( public.is_claims_admin() );
+
+-- For value_proposition_cards_config
+CREATE POLICY "Allow public read access to value_prop_cards"
+ON public.value_proposition_cards_config FOR SELECT USING (true);
+CREATE POLICY "Allow admin full access to value_prop_cards"
+ON public.value_proposition_cards_config FOR ALL
+USING ( public.is_claims_admin() )
+WITH CHECK ( public.is_claims_admin() );
+
+-- For pdf_config
+CREATE POLICY "Allow public read access to pdf_config"
+ON public.pdf_config FOR SELECT USING (true);
+CREATE POLICY "Allow admin full access to pdf_config"
+ON public.pdf_config FOR ALL
+USING ( public.is_claims_admin() )
+WITH CHECK ( public.is_claims_admin() );
