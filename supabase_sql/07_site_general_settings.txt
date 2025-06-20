@@ -1,0 +1,35 @@
+-- Create the general_site_settings table
+CREATE TABLE public.general_site_settings (
+  id boolean PRIMARY KEY DEFAULT true, -- Ensures only one row
+  hero_carousel_interval integer DEFAULT 3, -- in seconds
+  school_carousel_duration_per_item integer DEFAULT 5, -- in seconds for CSS animation
+  store_waze_url text,
+  store_google_maps_url text,
+  store_address_description text,
+  visit_store_main_image_id uuid REFERENCES public.media_items(id) ON DELETE SET NULL,
+  visit_store_waze_icon_id uuid REFERENCES public.media_items(id) ON DELETE SET NULL,
+  visit_store_gmaps_icon_id uuid REFERENCES public.media_items(id) ON DELETE SET NULL,
+  brand_logo_id uuid REFERENCES public.media_items(id) ON DELETE SET NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT single_row_check_general_settings CHECK (id = true) -- Enforce single row
+);
+
+-- Enable Row Level Security
+ALTER TABLE public.general_site_settings ENABLE ROW LEVEL SECURITY;
+
+-- Trigger for updated_at timestamp
+-- Assumes trigger_set_timestamp function is created from 00_setup.txt
+CREATE TRIGGER set_general_site_settings_updated_at
+BEFORE UPDATE ON public.general_site_settings
+FOR EACH ROW
+EXECUTE FUNCTION public.trigger_set_timestamp();
+
+-- Add Indexes
+CREATE INDEX IF NOT EXISTS idx_gss_visit_store_main_image_id ON public.general_site_settings (visit_store_main_image_id);
+CREATE INDEX IF NOT EXISTS idx_gss_visit_store_waze_icon_id ON public.general_site_settings (visit_store_waze_icon_id);
+CREATE INDEX IF NOT EXISTS idx_gss_visit_store_gmaps_icon_id ON public.general_site_settings (visit_store_gmaps_icon_id);
+CREATE INDEX IF NOT EXISTS idx_gss_brand_logo_id ON public.general_site_settings (brand_logo_id);
+
+
+-- Manually run this AFTER table creation to insert the single configuration row:
+-- INSERT INTO public.general_site_settings (id) VALUES (true) ON CONFLICT (id) DO NOTHING;
